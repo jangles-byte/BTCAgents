@@ -1,0 +1,5 @@
+# BTCAgents glue layer + config page (in addition to TradingAgents' own deps).
+# Install TradingAgents itself with:  pip install .   (uses pyproject.toml)
+flask>=3.0
+requests>=2.31
+cryptography>=42.0

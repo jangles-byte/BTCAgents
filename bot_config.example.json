@@ -1,0 +1,28 @@
+{
+  "_comment": "Copy this to bot_config.json OR just use the config page (python -m config_app.app). Secrets are masked in the UI once saved.",
+
+  "kalshi_api_key_id": "your-account-1-real-key-id",
+  "kalshi_private_key_path": "/Users/you/Desktop/kalshi_key.pem",
+
+  "kalshi_api_key_id_2": "your-account-2-demo-key-id",
+  "kalshi_private_key_path_2": "/Users/you/Desktop/kalshi_demo_key.pem",
+  "kalshi_base_url_2": "https://external-api.demo.kalshi.co/trade-api/v2",
+
+  "active_account": "2",
+
+  "llm_provider": "openai",
+  "deep_think_llm": "gpt-5.4",
+  "quick_think_llm": "gpt-5.4-mini",
+  "max_debate_rounds": 1,
+  "openai_api_key": "",
+  "anthropic_api_key": "",
+
+  "coinalyze_api_key": "",
+  "alpha_vantage_api_key": "",
+
+  "daily_loss_limit": 50,
+  "max_contracts_per_trade": 50,
+  "wager_pct": 0.10,
+  "min_ev_edge": 0.04,
+  "buying_enabled": false
+}

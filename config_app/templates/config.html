@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>BTCAgents · Config</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--fg:#e6edf3;--mut:#8b949e;
+        --acc:#f7931a;--ok:#3fb950;--err:#f85149;--inp:#0d1117;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;}
+  header{position:sticky;top:0;background:rgba(13,17,23,.92);backdrop-filter:blur(6px);
+         border-bottom:1px solid var(--bd);padding:14px 24px;display:flex;align-items:center;gap:12px;z-index:5}
+  header h1{font-size:16px;margin:0;font-weight:650}
+  header .dot{width:10px;height:10px;border-radius:50%;background:var(--acc)}
+  .wrap{max-width:880px;margin:24px auto;padding:0 20px}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;margin:0 0 18px;overflow:hidden}
+  .card h2{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);
+           margin:0;padding:14px 18px;border-bottom:1px solid var(--bd);background:#11161d}
+  .body{padding:8px 18px 16px}
+  .row{padding:10px 0;border-bottom:1px solid #20262e}
+  .row:last-child{border-bottom:none}
+  label{display:block;margin-bottom:6px;font-weight:550}
+  .opt{color:var(--mut);font-weight:400;font-size:12px}
+  input,select,textarea{width:100%;background:var(--inp);color:var(--fg);border:1px solid var(--bd);
+        border-radius:8px;padding:9px 11px;font:13px/1.4 ui-monospace,Menlo,monospace}
+  textarea{min-height:96px;resize:vertical}
+  input:focus,select,textarea:focus{outline:none;border-color:var(--acc)}
+  .radio{display:flex;gap:18px}
+  .radio label{display:flex;align-items:center;gap:7px;font-weight:550;margin:0}
+  .radio input{width:auto}
+  .actions{display:flex;gap:12px;align-items:center;margin:6px 0 40px}
+  button{background:var(--acc);color:#1a1205;border:none;border-radius:8px;padding:11px 20px;
+         font-weight:650;cursor:pointer;font-size:14px}
+  button.ghost{background:transparent;color:var(--fg);border:1px solid var(--bd)}
+  button:active{transform:translateY(1px)}
+  #msg{font-weight:600}
+  .ok{color:var(--ok)} .err{color:var(--err)}
+  pre{background:#0a0e14;border:1px solid var(--bd);border-radius:8px;padding:12px;overflow:auto;
+      color:var(--mut);white-space:pre-wrap}
+  .hint{color:var(--mut);font-size:12px;margin-top:4px}
+</style>
+</head>
+<body>
+<header><span class="dot"></span><h1>BTCAgents — Configuration</h1>
+  <a href="/" style="margin-left:auto;color:var(--mut);text-decoration:none;border:1px solid var(--bd);border-radius:8px;padding:7px 12px;font-size:12px">← Dashboard</a>
+  <span class="opt">stored in bot_config.json · secrets masked once saved</span>
+</header>
+
+<div class="wrap">
+<form id="f">
+  {% for title, fields in sections %}
+  <div class="card">
+    <h2>{{ title }}</h2>
+    <div class="body">
+      {% for fld in fields %}
+      <div class="row">
+        <label for="{{fld.key}}">{{ fld.label }}
+          {% if fld.optional %}<span class="opt">(optional)</span>{% endif %}
+        </label>
+        {% if fld.type == 'textarea' %}
+          <textarea id="{{fld.key}}" name="{{fld.key}}" placeholder="{{ fld.placeholder or '' }}">{{ values[fld.key] }}</textarea>
+        {% elif fld.type == 'select' %}
+          <select id="{{fld.key}}" name="{{fld.key}}">
+            {% for val,lab in fld.choices %}
+              <option value="{{val}}" {% if values[fld.key]==val %}selected{% endif %}>{{lab}}</option>
+            {% endfor %}
+          </select>
+        {% elif fld.type == 'radio' %}
+          <div class="radio">
+            {% for val,lab in fld.choices %}
+              <label><input type="radio" name="{{fld.key}}" value="{{val}}"
+                {% if (values[fld.key] or fld.default)|string == val %}checked{% endif %}>{{lab}}</label>
+            {% endfor %}
+          </div>
+        {% else %}
+          <input type="{{ 'password' if fld.type=='password' else ('number' if fld.type=='number' else 'text') }}"
+                 id="{{fld.key}}" name="{{fld.key}}" value="{{ values[fld.key] }}"
+                 placeholder="{{ fld.placeholder or '' }}"
+                 {% if fld.type=='number' %}step="any"{% endif %}>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="actions">
+    <button type="submit">Save</button>
+    <button type="button" class="ghost" id="testBtn">Test Kalshi connection</button>
+    <span id="msg"></span>
+  </div>
+</form>
+<pre id="out" style="display:none"></pre>
+</div>
+
+<script>
+const f=document.getElementById('f'), msg=document.getElementById('msg'), out=document.getElementById('out');
+f.addEventListener('submit', async e=>{
+  e.preventDefault();
+  msg.textContent='Saving…'; msg.className='';
+  const r=await fetch('/save',{method:'POST',body:new FormData(f)});
+  const j=await r.json();
+  if(j.ok){msg.textContent='Saved ✓ ('+(j.saved.length)+' fields)';msg.className='ok';}
+  else{msg.textContent='Save failed';msg.className='err';}
+  setTimeout(()=>msg.textContent='',4000);
+});
+document.getElementById('testBtn').addEventListener('click', async ()=>{
+  msg.textContent='Testing…'; msg.className=''; out.style.display='none';
+  // save first so the test uses current values
+  await fetch('/save',{method:'POST',body:new FormData(f)});
+  const r=await fetch('/test/kalshi',{method:'POST'});
+  const j=await r.json();
+  out.style.display='block'; out.textContent=JSON.stringify(j,null,2);
+  if(j.ok){msg.textContent='Connected ✓ (account '+j.active_account+')';msg.className='ok';}
+  else{msg.textContent='Connection failed';msg.className='err';}
+});
+</script>
+</body>
+</html>
