@@ -29,3 +29,22 @@ def read_decisions(n: int = 50) -> list:
         return json.loads(_FILE.read_text())[-n:]
     except Exception:
         return []
+
+
+# ── live cycle heartbeat (so the dashboard shows analyzing vs idle, truthfully) ─
+_STATUS = cfg.PROJECT_ROOT / "btc_kalshi" / "data" / "status.json"
+
+
+def set_status(phase: str, **extra) -> None:
+    d = {"phase": phase, "ts": time.time(), **extra}
+    _STATUS.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _STATUS.with_suffix(".statustmp")
+    tmp.write_text(json.dumps(d))
+    tmp.replace(_STATUS)
+
+
+def read_status() -> dict:
+    try:
+        return json.loads(_STATUS.read_text())
+    except Exception:
+        return {"phase": "idle"}

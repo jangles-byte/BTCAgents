@@ -223,6 +223,10 @@ def api_state():
     bv = cfg.load_config().get("buying_enabled", False)
     out["buying"] = bv is True or str(bv).lower() in ("1", "true", "yes")
     out["running"] = procman.is_running()
+    try:
+        out["status"] = logstore.read_status()
+    except Exception:
+        out["status"] = {"phase": "idle"}
     return jsonify(out)
 
 

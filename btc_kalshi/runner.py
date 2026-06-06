@@ -62,8 +62,11 @@ def run_once(dry_run: bool | None = None) -> dict:
     contract = contract_context.get_contract()
     if not contract:
         print(f"[{_now()}] no open KXBTC15M market; skipping.")
+        logstore.set_status("idle", note="no open market")
         return {"action": "skip", "reason": "no contract"}
     ta_crypto_vendor.set_active_contract(contract)
+    logstore.set_status("analyzing", started=time.time(), ticker=contract.get("ticker"),
+                        strike=contract.get("strike"), mins_remaining=contract.get("mins_remaining"))
 
     graph = TradingAgentsGraph(config=settings.build_ta_config())
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -89,6 +92,8 @@ def run_once(dry_run: bool | None = None) -> dict:
         pass
     print(f"[{_now()}] rating={result.get('rating')} -> {result.get('reason')} "
           f"(executed={result.get('executed')}, dry_run={result.get('dry_run', not _buying_enabled())})")
+    logstore.set_status("idle", last_done=time.time(), last_rating=result.get("rating"),
+                        last_action=result.get("action"))
     return result
 
 
@@ -102,6 +107,7 @@ def loop(interval_sec: int = 60) -> None:
             print("\nstopped."); break
         except Exception as e:
             print(f"[{_now()}] cycle error: {e}")
+            logstore.set_status("error", error=str(e)[:200])
         time.sleep(interval_sec)
 
 

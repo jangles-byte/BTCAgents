@@ -56,8 +56,12 @@ def build_ta_config() -> dict:
         ta["quick_think_llm"] = c["quick_think_llm"]
     if c.get("ollama_url"):
         ta["backend_url"] = c["ollama_url"]
-    if c.get("max_debate_rounds") is not None:
-        ta["max_debate_rounds"] = int(c["max_debate_rounds"])
+    mdr = c.get("max_debate_rounds")
+    if mdr not in (None, ""):
+        try:
+            ta["max_debate_rounds"] = int(mdr)
+        except (TypeError, ValueError):
+            pass
     # Route the data vendors at our crypto layer (handled in the graph wiring step).
     ta.setdefault("data_vendors", {})
     ta["data_vendors"]["core_stock_apis"] = "crypto"
