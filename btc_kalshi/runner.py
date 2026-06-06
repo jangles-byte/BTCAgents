@@ -59,11 +59,12 @@ def run_once(dry_run: bool | None = None) -> dict:
     ta_crypto_vendor.register_crypto_vendor()
     from tradingagents.graph.trading_graph import TradingAgentsGraph  # lazy: needs TA deps
 
-    contract = contract_context.get_contract()
+    min_mins = float(cfg.load_config().get("candle_min_minutes") or 4)
+    contract = contract_context.get_contract(min_minutes=min_mins)
     if not contract:
-        print(f"[{_now()}] no open KXBTC15M market; skipping.")
-        logstore.set_status("idle", note="no open market")
-        return {"action": "skip", "reason": "no contract"}
+        print(f"[{_now()}] no KXBTC15M market with >= {min_mins:g}m left; skipping.")
+        logstore.set_status("idle", note=f"waiting for a market with >= {min_mins:g}m left")
+        return {"action": "skip", "reason": "no fresh contract"}
     ta_crypto_vendor.set_active_contract(contract)
     logstore.set_status("analyzing", started=time.time(), ticker=contract.get("ticker"),
                         strike=contract.get("strike"), mins_remaining=contract.get("mins_remaining"))
@@ -90,8 +91,9 @@ def run_once(dry_run: bool | None = None) -> dict:
                                   "mins_remaining": contract.get("mins_remaining")})
     except Exception:
         pass
-    print(f"[{_now()}] rating={result.get('rating')} -> {result.get('reason')} "
-          f"(executed={result.get('executed')}, dry_run={result.get('dry_run', not _buying_enabled())})")
+    print(f"[{_now()}] rating={result.get('rating')} action={result.get('action')} "
+          f"placed={result.get('placed')} side={result.get('side')} count={result.get('count')} "
+          f"-> {result.get('reason')}" + (f"  ERROR={result.get('error')}" if result.get('error') else ""))
     logstore.set_status("idle", last_done=time.time(), last_rating=result.get("rating"),
                         last_action=result.get("action"))
     return result

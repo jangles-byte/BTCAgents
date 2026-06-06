@@ -100,10 +100,10 @@ SECTIONS = [
          "type": "number", "placeholder": "50"},
         {"key": "wager_pct", "label": "Wager fraction of balance", "type": "number",
          "optional": True, "placeholder": "0.10"},
-        {"key": "kelly_fraction", "label": "Kelly fraction", "type": "number", "optional": True,
-         "placeholder": "0.25"},
-        {"key": "min_ev_edge", "label": "Min edge to trade (prob)", "type": "number",
-         "optional": True, "placeholder": "0.04"},
+        {"key": "max_entry_price", "label": "Max entry price (0–1, skip pricier sides)",
+         "type": "number", "optional": True, "placeholder": "0.90"},
+        {"key": "candle_min_minutes", "label": "Min minutes left to trade a contract",
+         "type": "number", "optional": True, "placeholder": "4"},
     ]),
 ]
 
@@ -199,7 +199,8 @@ def api_state():
     except Exception:
         out["positions"] = []
     try:
-        m = contract_context.get_contract()
+        mm = float(cfg.load_config().get("candle_min_minutes") or 4)
+        m = contract_context.get_contract(min_minutes=mm) or contract_context.get_contract()
         if m:
             m["implied_prob"] = contract_context.implied_prob(m.get("yes_ask"), m.get("yes_bid"))
         out["contract"] = m

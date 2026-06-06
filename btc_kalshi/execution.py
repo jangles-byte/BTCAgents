@@ -47,11 +47,12 @@ def plan_order(rating: str, contract: dict, balance: float | None) -> dict:
         return {"action": "hold", "rating": rating, "side": side,
                 "reason": f"no ask price for {side}"}
 
-    # edge gate: skip if there's basically no payoff room left
-    min_edge = float(c.get("min_ev_edge", 0.0) or 0.0)
-    if ask >= (1.0 - max(min_edge, 0.01)):
+    # price gate: skip only when the side is so expensive there's no payoff left
+    # (e.g. an almost-decided contract). Reasonably-priced sides go through.
+    max_entry = float(c.get("max_entry_price") or 0.90)
+    if ask > max_entry:
         return {"action": "hold", "rating": rating, "side": side, "ask": ask,
-                "reason": f"{side} ask {ask} too expensive (edge gate {min_edge})"}
+                "reason": f"{side.upper()} ask {ask:.2f} > max entry {max_entry:.2f} — no payoff, skip"}
 
     # sizing — fraction of balance scaled by conviction, capped by max_exposure ($)
     frac = float(c.get("wager_pct", c.get("kelly_fraction", 0.10)) or 0.10)
@@ -140,28 +141,41 @@ def plan_action(rating: str, contract: dict, balance: float | None, positions: l
             "reason": "flat -> open"}
 
 
+def _order_fields(plan: dict):
+    op = plan.get("open") if isinstance(plan.get("open"), dict) else None
+    src = op or plan
+    return src.get("side"), src.get("count"), src.get("price_dollars")
+
+
 def manage_and_execute(rating: str, contract: dict, dry_run: bool = True) -> dict:
-    """Position-aware execute: handles buy YES / buy NO / sell-to-close / flip / hold."""
+    """Position-aware execute. Returns FLAT fields so the log + dashboard show the
+    real outcome: side, count, price, and `placed` (did an order actually go)."""
     bal = kalshi.get_balance()
     positions = kalshi.get_positions()
     plan = plan_action(rating, contract, bal, positions)
-    plan["balance_usd"] = bal
-    if dry_run:
-        return {**plan, "executed": False, "dry_run": True}
+    side, count, price = _order_fields(plan)
 
-    results = {}
-    if plan["action"] == "close_then_open":
-        if plan.get("close_price"):
-            results["close"] = kalshi.place_sell_order(
-                contract["ticker"], plan["close_side"], plan["close_count"], plan["close_price"])
-        op = plan["open"]
-        if op.get("action") == "buy":
-            results["open"] = kalshi.place_order(
-                op["ticker"], op["side"], op["count"], op["price_dollars"])
-    elif plan["action"] == "open":
-        op = plan["open"]
-        if op.get("action") == "buy":
-            results["open"] = kalshi.place_order(
-                op["ticker"], op["side"], op["count"], op["price_dollars"])
-    # hold / hold_position -> no exchange action
-    return {**plan, "executed": True, "kalshi": results}
+    op = plan.get("open") if isinstance(plan.get("open"), dict) else None
+    wants_order = plan["action"] in ("open", "close_then_open") and op and op.get("action") == "buy"
+    action, reason = plan["action"], plan.get("reason")
+    if plan["action"] in ("open", "close_then_open") and not wants_order:
+        # plan_order declined (too expensive / size 0) -> surface that honestly
+        action, reason = "hold", (op or {}).get("reason", reason)
+
+    out = {"action": action, "rating": plan.get("rating"), "reason": reason,
+           "side": side, "count": count, "price_dollars": price, "balance_usd": bal,
+           "ticker": contract.get("ticker"), "strike": contract.get("strike"),
+           "mins_remaining": contract.get("mins_remaining"), "placed": False, "dry_run": dry_run}
+
+    if dry_run or not wants_order:
+        return out
+
+    if plan["action"] == "close_then_open" and plan.get("close_price"):
+        out["close"] = kalshi.place_sell_order(
+            contract["ticker"], plan["close_side"], plan["close_count"], plan["close_price"])
+    res = kalshi.place_order(op["ticker"], op["side"], op["count"], op["price_dollars"])
+    out["kalshi"] = res
+    out["placed"] = "error" not in res
+    if "error" in res:
+        out["error"] = res["error"]
+    return out

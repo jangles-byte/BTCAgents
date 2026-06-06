@@ -58,9 +58,10 @@ def _mkt_price(m: dict, *keys):
     return None
 
 
-def get_front_market() -> dict | None:
-    """The active KXBTC15M market: nearest future close_time. Returns a dict with
-    ticker, strike, mins_remaining, yes/no ask+bid, close_ts — or None."""
+def get_front_market(min_minutes: float = 0.0) -> dict | None:
+    """The active KXBTC15M market: nearest future close_time with at least
+    `min_minutes` left. Returns a dict with ticker, strike, mins_remaining,
+    yes/no ask+bid, close_ts — or None."""
     kid, pk, prod_id, prod_key, base, acct = config.get_credentials()
     if not prod_id or not prod_key:
         return None
@@ -81,7 +82,7 @@ def get_front_market() -> dict | None:
         except Exception:
             continue
         diff = (close - now).total_seconds()
-        if 0 < diff < best_diff:
+        if (min_minutes * 60.0) < diff < best_diff:
             best_diff, best = diff, m
     if not best:
         return None

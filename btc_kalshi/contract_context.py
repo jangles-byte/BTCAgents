@@ -11,9 +11,10 @@ from __future__ import annotations
 from . import kalshi
 
 
-def get_contract() -> dict | None:
-    """The active KXBTC15M market (nearest close). See kalshi.get_front_market()."""
-    return kalshi.get_front_market()
+def get_contract(min_minutes: float = 0.0) -> dict | None:
+    """The active KXBTC15M market. Pass min_minutes to require enough time left
+    to actually analyze and trade it. See kalshi.get_front_market()."""
+    return kalshi.get_front_market(min_minutes)
 
 
 def implied_prob(yes_ask: float | None, yes_bid: float | None) -> float | None:
@@ -39,9 +40,13 @@ def build_contract_context(contract: dict | None = None) -> str:
         f"- NO (down): ask {m.get('no_ask')} / bid {m.get('no_bid')}",
         f"- Market-implied P(up): **{p}**" if p is not None else "- Market-implied P(up): n/a",
         "",
-        "_Decision rule: only take YES if your edge says P(up) is meaningfully ABOVE "
-        "the YES ask; only take NO if P(up) is meaningfully BELOW (1 - NO ask). "
-        "Otherwise HOLD — there is no edge in paying the spread._",
+        "_THIS IS A 15-MINUTE BET. Predict ONLY whether BTC will close ABOVE (YES/up) "
+        "or BELOW (NO/down) the strike in the minutes shown above. Base the call on "
+        "SHORT-TERM price action (last 1-15 min), distance to strike, momentum and "
+        "volatility. IGNORE long-term macro, Fed policy, on-chain cycles and multi-week "
+        "price targets — they are irrelevant on a 15-minute horizon. Conclude with a firm "
+        "BUY (you expect UP) or SELL (you expect DOWN); only HOLD if it is a genuine "
+        "coin-flip. Prefer the side that looks underpriced versus your prediction._",
     ]
     return "\n".join(lines)
 
