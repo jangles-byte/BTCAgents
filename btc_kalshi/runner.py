@@ -128,8 +128,8 @@ def run_once(dry_run: bool | None = None) -> dict:
 
 
 def loop(interval_sec: int = 60) -> None:
-    print(f"[{_now()}] BTCAgents loop started. buying_enabled={_buying_enabled()} "
-          f"(dry-run until enabled). Ctrl-C to stop.\n")
+    print(f"[{_now()}] BTCAgents loop started [build: market-only + force_trade + %-exposure]. "
+          f"buying_enabled={_buying_enabled()}. Ctrl-C to stop.\n")
     while True:
         try:
             run_once()

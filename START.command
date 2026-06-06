@@ -26,6 +26,13 @@ source venv/bin/activate
 EXIST=$(lsof -ti tcp:"$PORT" 2>/dev/null)
 [ -n "$EXIST" ] && { echo "› Freeing port $PORT (old instance)…"; kill -9 $EXIST 2>/dev/null; sleep 1; }
 
+# kill ANY orphaned agent-loop from a previous run (these run detached and keep
+# executing OLD code — the #1 cause of changes 'not taking effect')
+if pgrep -f "btc_kalshi.runner" >/dev/null 2>&1; then
+  echo "› Killing orphaned agent loop(s) from a previous run…"
+  pkill -9 -f "btc_kalshi.runner" 2>/dev/null; sleep 1
+fi
+
 # stop the agent loop too when this window is closed
 cleanup(){ echo; echo "› Stopping…"; python -c "from btc_kalshi import procman; procman.stop_runner()" 2>/dev/null; exit 0; }
 trap cleanup INT TERM
