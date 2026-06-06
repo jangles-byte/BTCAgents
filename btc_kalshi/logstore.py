@@ -15,7 +15,8 @@ def append_decision(result: dict) -> None:
     rows = read_decisions(500)
     entry = {k: result.get(k) for k in
              ("action", "rating", "side", "count", "price_dollars", "strike",
-              "mins_remaining", "ticker", "reason", "placed", "error", "dry_run", "balance_usd")}
+              "mins_remaining", "ticker", "reason", "placed", "order_status",
+              "after_position", "error", "dry_run", "balance_usd")}
     entry["ts"] = time.time()
     rows.append(entry)
     _FILE.parent.mkdir(parents=True, exist_ok=True)

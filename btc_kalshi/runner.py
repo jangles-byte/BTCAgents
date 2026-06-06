@@ -93,7 +93,9 @@ def run_once(dry_run: bool | None = None) -> dict:
         pass
     print(f"[{_now()}] rating={result.get('rating')} action={result.get('action')} "
           f"placed={result.get('placed')} side={result.get('side')} count={result.get('count')} "
-          f"-> {result.get('reason')}" + (f"  ERROR={result.get('error')}" if result.get('error') else ""))
+          f"@ {result.get('price_dollars')} status={result.get('order_status')} "
+          f"after={result.get('after_position')} -> {result.get('reason')}"
+          + (f"  ERROR={result.get('error')}" if result.get('error') else ""))
     logstore.set_status("idle", last_done=time.time(), last_rating=result.get("rating"),
                         last_action=result.get("action"))
     return result

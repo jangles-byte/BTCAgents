@@ -206,3 +206,39 @@ def get_settlements(limit: int = 50) -> list:
                 if str(s.get("ticker", "")).startswith("KXBTC15M")]
     except Exception:
         return []
+
+
+def get_orders(limit: int = 30):
+    """Recent orders on the ACTIVE account, each with its real `status`
+    (resting / executed / canceled). Returns (list, error_or_None)."""
+    kid, pk, _, _, base, _ = config.get_credentials()
+    if not kid or not pk:
+        return [], "no credentials"
+    path = "/trade-api/v2/portfolio/orders"
+    try:
+        r = _session.get(base + "/portfolio/orders",
+                         headers=_sign(kid, pk, "GET", path),
+                         params={"limit": limit}, timeout=8)
+        if r.status_code >= 400:
+            return [], f"HTTP {r.status_code}: {r.text[:200]}"
+        return r.json().get("orders", []) or [], None
+    except Exception as e:
+        return [], str(e)
+
+
+def get_fills(limit: int = 30):
+    """Recent FILLS (actual executions) on the ACTIVE account.
+    Returns (list, error_or_None). Empty list + no error = nothing has filled."""
+    kid, pk, _, _, base, _ = config.get_credentials()
+    if not kid or not pk:
+        return [], "no credentials"
+    path = "/trade-api/v2/portfolio/fills"
+    try:
+        r = _session.get(base + "/portfolio/fills",
+                         headers=_sign(kid, pk, "GET", path),
+                         params={"limit": limit}, timeout=8)
+        if r.status_code >= 400:
+            return [], f"HTTP {r.status_code}: {r.text[:200]}"
+        return r.json().get("fills", []) or [], None
+    except Exception as e:
+        return [], str(e)

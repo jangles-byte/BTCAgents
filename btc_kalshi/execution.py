@@ -170,12 +170,40 @@ def manage_and_execute(rating: str, contract: dict, dry_run: bool = True) -> dic
     if dry_run or not wants_order:
         return out
 
+    # The cycle took minutes, so the price from cycle-start is stale. Re-fetch the
+    # live ask and place a MARKETABLE limit (cross the spread a touch) so the order
+    # actually FILLS instead of resting unfilled until the contract settles.
+    side = op["side"]
+    ask = op["price_dollars"]
+    try:
+        fresh = kalshi.get_front_market(0)
+        if fresh and fresh.get("ticker") == op["ticker"]:
+            a = fresh.get("yes_ask") if side == "yes" else fresh.get("no_ask")
+            if a:
+                ask = float(a)
+    except Exception:
+        pass
+    buf = float(cfg.load_config().get("marketable_buffer") or 0.03)
+    price = min(0.99, round(float(ask) + buf, 2))
+    out["price_dollars"] = price
+
     if plan["action"] == "close_then_open" and plan.get("close_price"):
         out["close"] = kalshi.place_sell_order(
             contract["ticker"], plan["close_side"], plan["close_count"], plan["close_price"])
-    res = kalshi.place_order(op["ticker"], op["side"], op["count"], op["price_dollars"])
-    out["kalshi"] = res
+    res = kalshi.place_order(op["ticker"], side, op["count"], price)
     out["placed"] = "error" not in res
     if "error" in res:
         out["error"] = res["error"]
+    else:
+        o = res.get("order", {}) if isinstance(res, dict) else {}
+        out["order_status"] = o.get("status")
+        out["order_id"] = o.get("order_id")
+        # ground truth: did we actually end up in a position on this ticker?
+        try:
+            import time as _t
+            _t.sleep(0.4)
+            s2, c2 = held_position(kalshi.get_positions(), op["ticker"])
+            out["after_position"] = (f"{s2} x{c2}" if s2 else "flat (order did not fill)")
+        except Exception:
+            pass
     return out
