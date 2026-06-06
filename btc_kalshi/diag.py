@@ -34,18 +34,19 @@ def main():
     orders, oerr = kalshi.get_orders(20)
     print(f"\nRECENT ORDERS ({len(orders)}){'  ERROR: '+oerr if oerr else ''}:")
     for o in orders[:12]:
+        cnt = o.get('place_count') or o.get('initial_count') or o.get('count')
+        px = o.get('yes_price') or o.get('no_price') or o.get('price')
         print(f"  {o.get('created_time','')[:19]}  {o.get('ticker')}  {o.get('action')} {o.get('side')} "
-              f"x{o.get('count')}  status={o.get('status')}  "
-              f"yes_px={o.get('yes_price')} no_px={o.get('no_price')}  "
-              f"remaining={o.get('remaining_count')}")
+              f"x{cnt}  status={o.get('status')}  px={px}  remaining={o.get('remaining_count')}")
     if not orders and not oerr:
         print("  (no orders on record for this account)")
 
     fills, ferr = kalshi.get_fills(20)
     print(f"\nRECENT FILLS ({len(fills)}){'  ERROR: '+ferr if ferr else ''}:")
     for f in fills[:12]:
-        print(f"  {f.get('created_time','')[:19]}  {f.get('ticker')}  {f.get('side')} "
-              f"x{f.get('count')} @ {f.get('yes_price') or f.get('no_price')}  "
+        cnt = f.get('count') or f.get('quantity')
+        px = f.get('yes_price') or f.get('no_price') or f.get('price')
+        print(f"  {f.get('created_time','')[:19]}  {f.get('ticker')}  {f.get('side')} x{cnt} @ {px}  "
               f"(is_taker={f.get('is_taker')})")
     if not fills and not ferr:
         print("  (NOTHING has filled on this account)")
@@ -55,6 +56,12 @@ def main():
     for s in setts[:8]:
         print(f"  {s.get('settled_time','')[:19]}  {s.get('ticker')}  "
               f"revenue={s.get('revenue')}  yes={s.get('yes_count')} no={s.get('no_count')}")
+
+    from . import crypto_fundamentals as cf
+    print("\nCOINALYZE FEEDS (raw — to verify the dashboard parse):")
+    print("  funding:", cf.coinalyze_raw("/funding-rate", {"symbols": cf._CA_SYMBOL}))
+    print("  open-int:", cf.coinalyze_raw("/open-interest", {"symbols": cf._CA_SYMBOL, "convert_to_usd": "false"}))
+    print("  parsed  :", "funding=", cf.get_funding(), " oi=", cf.get_open_interest())
 
     m = contract_context.get_contract()
     print("\nLIVE FRONT MARKET:")

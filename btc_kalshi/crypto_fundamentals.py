@@ -1,92 +1,104 @@
-"""btc_kalshi.crypto_fundamentals — the BTC-relevant "fundamentals".
+"""btc_kalshi.crypto_fundamentals — the BTC-relevant "fundamentals":
+perp funding, open interest, long/short positioning.
 
-The original TradingAgents Fundamentals Analyst reads balance sheets / income
-statements. BTC has none. This module is the repurposed input source: derivatives
-positioning and flows that actually move BTC on short horizons —
-  - perpetual funding rate (who's paying to hold the trend)
-  - open interest (leverage in the system)
-  - long/short account ratio (crowd positioning)
-  - optional aggregated cross-exchange data via Coinalyze (api key, optional)
-
-Falls back gracefully when an endpoint or key is unavailable. No key needed for
-the Binance-futures public feeds; Coinalyze is optional and only enriches.
-
-Public API:
-    get_funding()                 -> dict
-    get_open_interest()           -> dict
-    get_long_short_ratio()        -> dict
-    build_fundamentals_report()   -> str (markdown, fed to the Fundamentals Analyst)
+Primary source is COINALYZE (works from the US, uses your coinalyze_api_key);
+Binance Futures is a fallback but is usually geo-blocked in the US. The funding
+report the agents read uses these same functions.
 """
 from __future__ import annotations
 
 import requests
 
+from . import config as cfg
+
 _session = requests.Session()
 _session.headers.update({"User-Agent": "BTCAgents/1.0"})
 TIMEOUT = 8
 _FAPI = "https://fapi.binance.com"
+_CA = "https://api.coinalyze.net/v1"
+_CA_SYMBOL = "BTCUSD_PERP.A"   # Binance BTC perp on Coinalyze (verified in agent log)
+
+
+def _ca_key():
+    return cfg.load_config().get("coinalyze_api_key") or None
+
+
+def coinalyze_raw(path: str, params: dict):
+    """Raw Coinalyze GET (used by feeds + the diagnostic). Returns (json, error)."""
+    key = _ca_key()
+    if not key:
+        return None, "no coinalyze_api_key set"
+    try:
+        r = _session.get(_CA + path, headers={"api_key": key}, params=params, timeout=TIMEOUT)
+        if r.status_code >= 400:
+            return None, f"HTTP {r.status_code}: {r.text[:160]}"
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
+
+
+def _ca_value(j):
+    """Coinalyze list endpoints return [{symbol, value, update}, ...]."""
+    if isinstance(j, list) and j and isinstance(j[0], dict):
+        for k in ("value", "funding_rate", "rate", "oi", "open_interest", "r"):
+            v = j[0].get(k)
+            if v is not None:
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    pass
+    return None
 
 
 def get_funding() -> dict:
+    # Coinalyze first (value is a decimal fraction, e.g. -0.0008 = -0.08%)
+    j, err = coinalyze_raw("/funding-rate", {"symbols": _CA_SYMBOL})
+    v = _ca_value(j)
+    if v is not None:
+        return {"funding_rate": round(v * 100, 4), "source": "coinalyze"}
+    # Binance fallback (often US-blocked)
     try:
-        r = _session.get(f"{_FAPI}/fapi/v1/premiumIndex",
-                         params={"symbol": "BTCUSDT"}, timeout=TIMEOUT)
+        r = _session.get(f"{_FAPI}/fapi/v1/premiumIndex", params={"symbol": "BTCUSDT"}, timeout=TIMEOUT)
         if r.ok:
             d = r.json()
-            return {
-                "funding_rate": float(d.get("lastFundingRate", 0)) * 100,  # pct
-                "mark_price": float(d.get("markPrice", 0)),
-                "index_price": float(d.get("indexPrice", 0)),
-            }
+            return {"funding_rate": round(float(d.get("lastFundingRate", 0)) * 100, 4),
+                    "mark_price": float(d.get("markPrice", 0)), "source": "binance"}
     except Exception:
         pass
-    return {}
+    return {"error": err or "unavailable"}
 
 
 def get_open_interest() -> dict:
-    out = {}
+    j, err = coinalyze_raw("/open-interest", {"symbols": _CA_SYMBOL, "convert_to_usd": "false"})
+    v = _ca_value(j)
+    if v is not None:
+        return {"open_interest_btc": round(v, 2), "source": "coinalyze"}
     try:
-        r = _session.get(f"{_FAPI}/fapi/v1/openInterest",
-                         params={"symbol": "BTCUSDT"}, timeout=TIMEOUT)
+        r = _session.get(f"{_FAPI}/fapi/v1/openInterest", params={"symbol": "BTCUSDT"}, timeout=TIMEOUT)
         if r.ok:
-            out["open_interest_btc"] = float(r.json().get("openInterest", 0))
+            return {"open_interest_btc": float(r.json().get("openInterest", 0)), "source": "binance"}
     except Exception:
         pass
-    try:
-        r = _session.get(f"{_FAPI}/futures/data/openInterestHist",
-                         params={"symbol": "BTCUSDT", "period": "5m", "limit": 6}, timeout=TIMEOUT)
-        if r.ok and r.json():
-            hist = r.json()
-            first = float(hist[0]["sumOpenInterest"])
-            last = float(hist[-1]["sumOpenInterest"])
-            out["oi_change_30m_pct"] = round((last / first - 1) * 100, 2) if first else None
-    except Exception:
-        pass
-    return out
+    return {"error": err or "unavailable"}
 
 
 def get_long_short_ratio() -> dict:
+    # Coinalyze long/short ratio history (take the latest point)
+    j, err = coinalyze_raw("/long-short-ratio-history",
+                           {"symbols": _CA_SYMBOL, "interval": "5min"})
+    try:
+        if isinstance(j, list) and j and j[0].get("history"):
+            last = j[0]["history"][-1]
+            r = last.get("r") or last.get("ratio") or last.get("value")
+            if r is not None:
+                return {"long_short_ratio": round(float(r), 3), "source": "coinalyze"}
+    except Exception:
+        pass
     try:
         r = _session.get(f"{_FAPI}/futures/data/globalLongShortAccountRatio",
                          params={"symbol": "BTCUSDT", "period": "5m", "limit": 1}, timeout=TIMEOUT)
         if r.ok and r.json():
-            d = r.json()[-1]
-            return {"long_short_ratio": round(float(d["longShortRatio"]), 3)}
-    except Exception:
-        pass
-    return {}
-
-
-def get_coinalyze(api_key: str | None) -> dict:
-    """Optional: aggregated cross-exchange funding/OI. Only runs if a key is set."""
-    if not api_key:
-        return {}
-    try:
-        r = _session.get("https://api.coinalyze.net/v1/funding-rate",
-                         headers={"api_key": api_key},
-                         params={"symbols": "BTCUSD_PERP.A"}, timeout=TIMEOUT)
-        if r.ok:
-            return {"coinalyze": r.json()}
+            return {"long_short_ratio": round(float(r.json()[-1]["longShortRatio"]), 3), "source": "binance"}
     except Exception:
         pass
     return {}
@@ -99,31 +111,25 @@ def build_fundamentals_report(coinalyze_key: str | None = None) -> str:
     lsr = get_long_short_ratio()
 
     lines = ["# BTC Positioning & Flows (derivatives 'fundamentals')", ""]
-    if fund:
-        fr = fund.get("funding_rate")
-        bias = ("longs paying shorts (bullish-crowded)" if fr and fr > 0
-                else "shorts paying longs (bearish-crowded)" if fr is not None else "n/a")
-        lines += [
-            f"- Perp funding rate: **{fr:+.4f}%** — {bias}" if fr is not None else "- Perp funding: n/a",
-            f"- Mark price: {fund.get('mark_price')}  |  Index: {fund.get('index_price')}",
-        ]
-    if oi:
-        lines.append(f"- Open interest: {oi.get('open_interest_btc')} BTC"
-                     + (f" (30m change {oi.get('oi_change_30m_pct')}%)" if oi.get('oi_change_30m_pct') is not None else ""))
-    if lsr:
+    fr = fund.get("funding_rate")
+    if fr is not None:
+        bias = ("longs paying shorts (bullish-crowded)" if fr > 0
+                else "shorts paying longs (bearish-crowded)")
+        lines.append(f"- Perp funding rate: **{fr:+.4f}%** — {bias}  _(src: {fund.get('source')})_")
+    else:
+        lines.append(f"- Perp funding: unavailable ({fund.get('error')})")
+    if oi.get("open_interest_btc") is not None:
+        lines.append(f"- Open interest: {oi['open_interest_btc']}  _(src: {oi.get('source')})_")
+    if lsr.get("long_short_ratio") is not None:
         r = lsr["long_short_ratio"]
-        lines.append(f"- Global long/short account ratio: **{r}** "
-                     f"({'crowd net long' if r > 1 else 'crowd net short'})")
-    extra = get_coinalyze(coinalyze_key)
-    if extra:
-        lines.append(f"- Coinalyze (aggregated): {extra['coinalyze']}")
+        lines.append(f"- Long/short ratio: **{r}** ({'crowd net long' if r > 1 else 'crowd net short'})")
     if len(lines) <= 2:
         lines.append("- (No derivatives data available right now.)")
     lines += [
         "",
         "_Interpretation: extreme funding + rising OI often precedes mean-reverting "
         "squeezes; neutral funding with flat OI favors range/continuation. Weigh against "
-        "the technical trend and the contract's implied probability._",
+        "the short-term technical trend and the contract's implied probability._",
     ]
     return "\n".join(lines)
 
