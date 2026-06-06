@@ -65,6 +65,8 @@ SECTIONS = [
          "placeholder": "gpt-5.4-mini"},
         {"key": "max_debate_rounds", "label": "Debate rounds", "type": "number",
          "optional": True, "placeholder": "1"},
+        {"key": "analysts", "label": "Active analysts (comma-sep)", "type": "text",
+         "optional": True, "placeholder": "market,fundamentals  (add news,social to widen)"},
         {"key": "openai_api_key", "label": "OpenAI API key", "type": "password", "secret": True,
          "optional": True},
         {"key": "anthropic_api_key", "label": "Anthropic API key", "type": "password",
