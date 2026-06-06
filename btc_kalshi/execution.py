@@ -32,6 +32,18 @@ def normalize_rating(raw: str) -> str:
     return "HOLD"
 
 
+def _frac(c: dict, key: str, default: float) -> float:
+    """Read a 0–1 fraction that may be entered as a percent (e.g. '20' -> 0.20)."""
+    v = c.get(key)
+    if v in (None, ""):
+        return default
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return default
+    return v / 100.0 if v > 1 else v
+
+
 def open_exposure(positions: list) -> float:
     """Total $ currently deployed across open positions (your 'money out')."""
     tot = 0.0
@@ -68,7 +80,7 @@ def plan_order(rating: str, contract: dict, balance: float | None,
         return {"action": "hold", "rating": rating, "side": side,
                 "reason": f"no ask price for {side}"}
 
-    max_entry = float(c.get("max_entry_price") or 0.90)
+    max_entry = _frac(c, "max_entry_price", 0.90)
     if ask > max_entry:
         return {"action": "hold", "rating": rating, "side": side, "ask": ask,
                 "reason": f"{side.upper()} ask {ask:.2f} > max entry {max_entry:.2f} — no payoff, skip"}
@@ -77,8 +89,9 @@ def plan_order(rating: str, contract: dict, balance: float | None,
     bal = float(balance or 0.0)
     exposure = open_exposure(positions)
     equity = bal + exposure                                   # total account value
-    wager_pct = float(c.get("wager_pct") or 0.10)             # per-trade % of equity
-    max_exp_pct = float(c.get("max_exposure_pct") or 0.50)    # max % deployed at once
+    max_exp_pct = _frac(c, "max_exposure_pct", 0.50)    # max % deployed across all positions
+    # blank wager -> each trade uses the full max-exposure budget (single-position use)
+    wager_pct = _frac(c, "wager_pct", max_exp_pct)      # per-trade % of equity
     room = max(0.0, max_exp_pct * equity - exposure)          # new exposure allowed ($)
     if room <= 0:
         return {"action": "hold", "rating": rating, "side": side, "ask": ask,
