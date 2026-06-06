@@ -230,7 +230,7 @@
       <div class="card">
         <h2><span class="tick"></span>AI Thought Process · live
           <span class="spacer" style="flex:1"></span>
-          <span class="cstate" id="logState">streaming</span>
+          <button id="copyLog" class="btn" style="padding:5px 12px;font-size:10px;letter-spacing:.05em">Copy</button>
         </h2>
         <pre id="aiLog" style="margin:0;max-height:340px;overflow:auto;padding:12px 14px;
              font:11px/1.55 ui-monospace,Menlo,monospace;color:#9fb0c2;white-space:pre-wrap;
@@ -474,14 +474,16 @@ async function pullState(){
     $('buyState').textContent=buying?(s.mode==='REAL'?'LIVE · real money':'live · demo acct'):'dry-run';
     $('buyState').className='cstate '+(buying?(s.mode==='REAL'?'bad':'warn'):'');
     // pipeline status (real)
-    const st=s.status||{phase:'idle'};pipeActive=st.phase==='analyzing'&&running;
-    const ps=$('pipeStatus');const now=Date.now()/1000;
-    if(st.phase==='analyzing'){const el=Math.max(0,Math.floor(now-(st.started||st.ts||now)));
-      ps.textContent='● analyzing — '+Math.floor(el/60)+':'+String(el%60).padStart(2,'0');ps.className='cstate warn';}
+    const st=s.status||{phase:'idle'};const now=Date.now()/1000;
+    pipeActive=running && st.phase==='analyzing';
+    const ps=$('pipeStatus');
+    if(!running){ps.textContent='stopped — press Run System';ps.className='cstate';}
+    else if(st.phase==='analyzing'){const el=Math.max(0,Math.floor(now-(st.started||st.ts||now)));
+      ps.textContent='● analyzing — '+Math.floor(el/60)+':'+String(el%60).padStart(2,'0')+(el>240?'  (stalled? check log)':'');
+      ps.className='cstate '+(el>240?'bad':'warn');}
     else if(st.phase==='error'){ps.textContent='⚠ error — '+(st.error||'').slice(0,54);ps.className='cstate bad';}
     else{const ago=st.last_done?Math.floor(now-st.last_done):null;
-      ps.textContent=running?('idle · last cycle '+(ago!=null?ago+'s ago':'pending')+' · next ≤60s'):'stopped — press Run System';
-      ps.className='cstate '+(running?'good':'');}
+      ps.textContent='idle · last cycle '+(ago!=null?ago+'s ago':'pending')+' · next ≤60s';ps.className='cstate good';}
     // contract
     const c=s.contract;
     if(c){curStrike=c.strike;$('ticker').textContent=c.ticker||'—';tween($('strike'),c.strike,0);
@@ -539,6 +541,13 @@ async function pullLog(){try{const d=await (await fetch('/api/log')).json();
   el.textContent=(d.lines||[]).join('\n')||'(no log yet — press Run System)';
   if(atBottom)el.scrollTop=el.scrollHeight;
 }catch(e){}}
+$('copyLog').onclick=async()=>{const b=$('copyLog'),t=b.textContent;
+  try{await navigator.clipboard.writeText($('aiLog').textContent);b.textContent='Copied ✓';}
+  catch(e){const r=document.createRange();r.selectNode($('aiLog'));
+    getSelection().removeAllRanges();getSelection().addRange(r);
+    try{document.execCommand('copy');b.textContent='Copied ✓';}catch(_){b.textContent='select+⌘C';}
+    getSelection().removeAllRanges();}
+  setTimeout(()=>{b.textContent=t;},1500);};
 
 pullPrice();pullState();pullTrades();pullLog();
 setInterval(pullState,1500);

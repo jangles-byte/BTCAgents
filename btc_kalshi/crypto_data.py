@@ -13,6 +13,7 @@ Public API:
 """
 from __future__ import annotations
 
+import re
 import statistics
 import time
 from datetime import datetime, timezone
@@ -23,9 +24,26 @@ _session = requests.Session()
 _session.headers.update({"User-Agent": "BTCAgents/1.0"})
 TIMEOUT = 8
 
+# ── tiny TTL cache so the 1.5s dashboard polling doesn't hammer (and 429) APIs ──
+_CACHE: dict = {}
+
+
+def cached(key: str, ttl: float, fn):
+    now = time.time()
+    hit = _CACHE.get(key)
+    if hit and (now - hit[0]) < ttl:
+        return hit[1]
+    val = fn()
+    _CACHE[key] = (now, val)
+    return val
+
 
 # ───────────────────────── spot price (with fallback) ─────────────────────────
 def get_spot() -> float | None:
+    return cached("spot", 2.0, _spot_uncached)
+
+
+def _spot_uncached() -> float | None:
     """Latest BTC/USD spot. Tries Coinbase, then Kraken, then Binance."""
     # Coinbase
     try:
@@ -82,6 +100,10 @@ def _klines_coinbase(interval: str, limit: int) -> list[dict]:
 
 
 def get_klines(interval: str = "1m", limit: int = 60) -> list[dict]:
+    return cached(f"klines:{interval}:{limit}", 4.0, lambda: _klines_uncached(interval, limit))
+
+
+def _klines_uncached(interval: str = "1m", limit: int = 60) -> list[dict]:
     """OHLCV candles, oldest..newest. interval in {1m,5m,15m,1h}."""
     for fn in (_klines_coinbase, _klines_binance):
         try:
@@ -153,6 +175,87 @@ def compute_features(klines: list[dict]) -> dict:
     }
 
 
+# ───────────────────────── real technical indicators ─────────────────────────
+def _sma(vals, p):
+    return sum(vals[-p:]) / p if len(vals) >= p else None
+
+
+def _ema_last(vals, p):
+    if len(vals) < p:
+        return None
+    k = 2 / (p + 1)
+    e = vals[0]
+    out = [e]
+    for v in vals[1:]:
+        e = v * k + e * (1 - k)
+        out.append(e)
+    return out
+
+
+def _atr(klines, p=14):
+    if len(klines) <= p:
+        return None
+    trs = []
+    for i in range(1, len(klines)):
+        h, l, pc = klines[i]["h"], klines[i]["l"], klines[i - 1]["c"]
+        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+    return sum(trs[-p:]) / p if len(trs) >= p else None
+
+
+def indicator_value(name: str, klines: list[dict]) -> str:
+    """Real, distinct technical indicators computed from the candles (1m), so each
+    request (rsi/macd/sma/ema/bollinger/atr) returns a genuine value."""
+    if not klines:
+        return f"No data for {name}."
+    closes = [c["c"] for c in klines]
+    last = closes[-1]
+    n = (name or "").lower()
+    m = re.search(r"(\d+)", n)
+    per = int(m.group(1)) if m else None
+    tf = "1m"
+    if "rsi" in n:
+        return f"RSI(14,{tf}) = {_rsi(closes, 14)}"
+    if "macd" in n:
+        e12, e26 = _ema_last(closes, 12), _ema_last(closes, 26)
+        if not e12 or not e26:
+            return "MACD: insufficient data"
+        line = e12[-1] - e26[-1]
+        macd_series = [a - b for a, b in zip(e12[-len(e26):], e26)]
+        sig = _ema_last(macd_series, 9)
+        sigv = sig[-1] if sig else line
+        return f"MACD({tf}): line={line:.2f} signal={sigv:.2f} hist={line - sigv:+.2f}"
+    if "sma" in n:
+        p = per or 20
+        v = _sma(closes, p)
+        return (f"SMA({p},{tf}) = {v:.2f} (last {last:.2f}, "
+                f"{'above' if v and last > v else 'below'})" if v else f"SMA({p}): insufficient data")
+    if "ema" in n:
+        p = per or 9
+        s = _ema_last(closes, p)
+        v = s[-1] if s else None
+        return (f"EMA({p},{tf}) = {v:.2f} (last {last:.2f}, "
+                f"{'above' if v and last > v else 'below'})" if v else f"EMA({p}): insufficient data")
+    if "boll" in n:
+        mid = _sma(closes, 20)
+        sd = statistics.pstdev(closes[-20:]) if len(closes) >= 20 else None
+        if mid is None or sd is None:
+            return "Bollinger: insufficient data"
+        ub, lb = mid + 2 * sd, mid - 2 * sd
+        if "ub" in n:
+            return f"Bollinger upper(20,2,{tf}) = {ub:.2f} (last {last:.2f})"
+        if "lb" in n:
+            return f"Bollinger lower(20,2,{tf}) = {lb:.2f} (last {last:.2f})"
+        return f"Bollinger(20,2,{tf}): mid={mid:.2f} ub={ub:.2f} lb={lb:.2f} (last {last:.2f})"
+    if "atr" in n:
+        v = _atr(klines, 14)
+        return f"ATR(14,{tf}) = {v:.2f}  (~${v:.0f} typical 1m range)" if v else "ATR: insufficient data"
+    if "close" in n and per is None:
+        return f"Last close = {last:.2f}"
+    f = compute_features(klines)
+    return (f"BTC {tf} snapshot — last {f.get('last')}, RSI {f.get('rsi_14')}, "
+            f"trend {f.get('ema_trend')}, ret_5m {f.get('ret_5m')}%, vol {f.get('vol_1m_pct')}")
+
+
 # ───────────────────────── analyst-facing report ─────────────────────────────
 def build_market_report(strike: float | None = None, mins_remaining: float | None = None) -> str:
     """Markdown technical snapshot the Market Analyst consumes. If a Kalshi strike
@@ -188,6 +291,19 @@ def build_market_report(strike: float | None = None, mins_remaining: float | Non
     if k15:
         closes = [c["c"] for c in k15]
         lines.append(f"- Last 15m candles close range: {min(closes):,.0f}–{max(closes):,.0f}")
+    # fold in derivatives positioning so it's considered without a macro-essay analyst
+    try:
+        from . import crypto_fundamentals as _cf
+        fu, oi, ls = _cf.get_funding(), _cf.get_open_interest(), _cf.get_long_short_ratio()
+        if fu.get("funding_rate") is not None:
+            lines.append(f"- Perp funding: {fu['funding_rate']:+.4f}% "
+                         f"({'longs paying (crowded long)' if fu['funding_rate'] > 0 else 'shorts paying (crowded short)'})")
+        if oi.get("open_interest_btc") is not None:
+            lines.append(f"- Open interest: {oi['open_interest_btc']}")
+        if ls.get("long_short_ratio") is not None:
+            lines.append(f"- Long/short ratio: {ls['long_short_ratio']}")
+    except Exception:
+        pass
     return "\n".join([l for l in lines if l != ""])
 
 

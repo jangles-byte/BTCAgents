@@ -34,26 +34,8 @@ def _crypto_stock_data(symbol, start_date, end_date):
 
 
 def _crypto_indicators(symbol, indicator, curr_date, look_back_days=30):
-    k = crypto_data.get_klines("1m", 60)
-    f = crypto_data.compute_features(k)
-    if not f:
-        return f"No crypto indicator data available for '{indicator}'."
-    ind = (indicator or "").lower()
-    pick = {
-        "rsi": f"RSI(14,1m) = {f.get('rsi_14')}",
-        "macd": f"EMA9 {f.get('ema9')} vs EMA21 {f.get('ema21')} -> trend {f.get('ema_trend')}",
-        "ema": f"EMA9 {f.get('ema9')} / EMA21 {f.get('ema21')} ({f.get('ema_trend')})",
-        "close": f"Last close = {f.get('last')}",
-        "atr": f"1m realized vol (pct stdev) = {f.get('vol_1m_pct')}",
-        "volume": f"Volume last {f.get('vol_last')} vs 20-avg {f.get('vol_avg')}",
-    }
-    for key, txt in pick.items():
-        if key in ind:
-            return txt
-    # default: full snapshot
-    return (f"BTC 1m features — last {f.get('last')}, RSI {f.get('rsi_14')}, "
-            f"trend {f.get('ema_trend')}, ret_5m {f.get('ret_5m')}%, "
-            f"vol {f.get('vol_1m_pct')}")
+    # real, distinct indicators computed from 1m candles (rsi/macd/sma/ema/boll/atr)
+    return crypto_data.indicator_value(indicator, crypto_data.get_klines("1m", 250))
 
 
 def _crypto_fundamentals(symbol, *a, **k):

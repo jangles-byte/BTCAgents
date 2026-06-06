@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import requests
 
-from . import config as cfg
+from . import config as cfg, crypto_data
 
 _session = requests.Session()
 _session.headers.update({"User-Agent": "BTCAgents/1.0"})
@@ -51,6 +51,10 @@ def _ca_value(j):
 
 
 def get_funding() -> dict:
+    return crypto_data.cached("fund:funding", 30.0, _funding_uncached)
+
+
+def _funding_uncached() -> dict:
     # Coinalyze first (value is a decimal fraction, e.g. -0.0008 = -0.08%)
     j, err = coinalyze_raw("/funding-rate", {"symbols": _CA_SYMBOL})
     v = _ca_value(j)
@@ -69,6 +73,10 @@ def get_funding() -> dict:
 
 
 def get_open_interest() -> dict:
+    return crypto_data.cached("fund:oi", 30.0, _oi_uncached)
+
+
+def _oi_uncached() -> dict:
     j, err = coinalyze_raw("/open-interest", {"symbols": _CA_SYMBOL, "convert_to_usd": "false"})
     v = _ca_value(j)
     if v is not None:
@@ -83,6 +91,10 @@ def get_open_interest() -> dict:
 
 
 def get_long_short_ratio() -> dict:
+    return crypto_data.cached("fund:ls", 30.0, _ls_uncached)
+
+
+def _ls_uncached() -> dict:
     # Coinalyze long/short ratio history (take the latest point)
     j, err = coinalyze_raw("/long-short-ratio-history",
                            {"symbols": _CA_SYMBOL, "interval": "5min"})

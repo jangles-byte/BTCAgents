@@ -32,8 +32,29 @@ def normalize_rating(raw: str) -> str:
     return "HOLD"
 
 
-def plan_order(rating: str, contract: dict, balance: float | None) -> dict:
-    """Decide what to do — no side effects. Returns a plan dict."""
+def open_exposure(positions: list) -> float:
+    """Total $ currently deployed across open positions (your 'money out')."""
+    tot = 0.0
+    for p in positions or []:
+        n = abs(int(p.get("position", 0) or 0))
+        if not n:
+            continue
+        me = p.get("market_exposure")
+        if me is not None:
+            try:
+                tot += float(me) / 100.0
+                continue
+            except (TypeError, ValueError):
+                pass
+        tot += n * 0.5  # fallback if Kalshi didn't return a cost field
+    return tot
+
+
+def plan_order(rating: str, contract: dict, balance: float | None,
+               positions: list | None = None) -> dict:
+    """Decide what to do — no side effects. Sizing is %-of-account-equity based so
+    it scales as the balance grows, and TOTAL open exposure (money out across all
+    positions) is capped at a % of equity — not a hard per-trade dollar amount."""
     c = cfg.load_config()
     rating = normalize_rating(rating)
     conviction = _CONVICTION.get(rating, 0.0)
@@ -47,33 +68,35 @@ def plan_order(rating: str, contract: dict, balance: float | None) -> dict:
         return {"action": "hold", "rating": rating, "side": side,
                 "reason": f"no ask price for {side}"}
 
-    # price gate: skip only when the side is so expensive there's no payoff left
-    # (e.g. an almost-decided contract). Reasonably-priced sides go through.
     max_entry = float(c.get("max_entry_price") or 0.90)
     if ask > max_entry:
         return {"action": "hold", "rating": rating, "side": side, "ask": ask,
                 "reason": f"{side.upper()} ask {ask:.2f} > max entry {max_entry:.2f} — no payoff, skip"}
 
-    # sizing — fraction of balance scaled by conviction, capped by max_exposure ($)
-    frac = float(c.get("wager_pct", c.get("kelly_fraction", 0.10)) or 0.10)
-    max_exposure = float(c.get("max_exposure", 0) or 0)   # 0 = no dollar cap
-    if balance and balance > 0:
-        stake = balance * frac * conviction
-    else:
-        stake = float(c.get("min_bet", 1) or 1) * ask
-    if max_exposure > 0:
-        stake = min(stake, max_exposure)
-    count = int(math.floor(stake / ask)) if ask > 0 else 0
-    count = max(0, count)
-    if count == 0:
+    # ── %-of-equity sizing + total-exposure cap (both scale with the account) ──
+    bal = float(balance or 0.0)
+    exposure = open_exposure(positions)
+    equity = bal + exposure                                   # total account value
+    wager_pct = float(c.get("wager_pct") or 0.10)             # per-trade % of equity
+    max_exp_pct = float(c.get("max_exposure_pct") or 0.50)    # max % deployed at once
+    room = max(0.0, max_exp_pct * equity - exposure)          # new exposure allowed ($)
+    if room <= 0:
         return {"action": "hold", "rating": rating, "side": side, "ask": ask,
-                "reason": "computed size = 0 (low balance / exposure cap)"}
+                "reason": f"exposure cap hit: {max_exp_pct*100:.0f}% of ${equity:.0f} already deployed"}
+    stake = min(wager_pct * equity * conviction, room)
+    if bal > 0:
+        stake = min(stake, bal)                               # can't spend more cash than we have
+    count = int(math.floor(stake / ask)) if ask > 0 else 0
+    if count <= 0:
+        return {"action": "hold", "rating": rating, "side": side, "ask": ask,
+                "reason": f"computed size 0 (stake ${stake:.2f} / ask {ask:.2f})"}
 
     return {
         "action": "buy", "rating": rating, "side": side, "count": count,
         "price_dollars": round(float(ask), 4), "ticker": contract.get("ticker"),
         "strike": contract.get("strike"), "mins_remaining": contract.get("mins_remaining"),
-        "reason": f"{rating} -> buy {count} {side.upper()} @ {ask}",
+        "reason": f"{rating} -> buy {count} {side.upper()} @ {ask} "
+                  f"(stake ${stake:.0f} of ${equity:.0f} equity)",
     }
 
 
@@ -133,11 +156,12 @@ def plan_action(rating: str, contract: dict, balance: float | None, positions: l
         return {"action": "close_then_open", "rating": rating,
                 "close_side": side_held, "close_count": count_held,
                 "close_price": round(float(bid), 4) if bid else None,
-                "open": plan_order(rating, contract, balance),
+                "open": plan_order(rating, contract, balance, positions),
                 "reason": f"flip: sell {count_held} {side_held.upper()} -> buy {target.upper()}"}
 
     # Flat -> open
-    return {"action": "open", "rating": rating, "open": plan_order(rating, contract, balance),
+    return {"action": "open", "rating": rating,
+            "open": plan_order(rating, contract, balance, positions),
             "reason": "flat -> open"}
 
 
@@ -204,6 +228,14 @@ def manage_and_execute(rating: str, contract: dict, dry_run: bool = True) -> dic
             _t.sleep(0.4)
             s2, c2 = held_position(kalshi.get_positions(), op["ticker"])
             out["after_position"] = (f"{s2} x{c2}" if s2 else "flat (order did not fill)")
+            # take-profit: rest a GTC sell at the configured price on the side we now hold
+            tp = cfg.load_config().get("take_profit_price")
+            if tp and s2 and c2 > 0:
+                tpf = float(tp)
+                if tpf > 1:
+                    tpf /= 100.0          # accept "97" or "0.97"
+                out["take_profit_at"] = round(tpf, 4)
+                out["take_profit"] = kalshi.place_sell_order(op["ticker"], s2, c2, round(tpf, 4))
         except Exception:
             pass
     return out
