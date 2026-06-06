@@ -96,10 +96,8 @@ SECTIONS = [
          "optional": True},
     ]),
     ("Risk & sizing", [
-        {"key": "wager_pct", "label": "Per-trade size (% of account, 0–1)", "type": "number",
-         "placeholder": "0.10"},
-        {"key": "max_exposure_pct", "label": "Max total exposure (% of account deployed at once, 0–1)",
-         "type": "number", "placeholder": "0.50"},
+        {"key": "max_exposure_pct", "label": "Position size = max exposure (% of account, e.g. 0.2 or 20)",
+         "type": "number", "placeholder": "0.20"},
         {"key": "take_profit_price", "label": "Take-profit: auto-sell at price (e.g. 0.97 or 97)",
          "type": "number", "optional": True, "placeholder": "0.97"},
         {"key": "wallet_floor", "label": "Wallet floor ($ — buying stops at this balance)",

@@ -85,20 +85,17 @@ def plan_order(rating: str, contract: dict, balance: float | None,
         return {"action": "hold", "rating": rating, "side": side, "ask": ask,
                 "reason": f"{side.upper()} ask {ask:.2f} > max entry {max_entry:.2f} — no payoff, skip"}
 
-    # ── %-of-equity sizing + total-exposure cap (both scale with the account) ──
+    # ── ONE knob: max_exposure (% of account) IS the position size. One market,
+    #    one position, so exposure == position size. Scales as the balance grows. ──
     bal = float(balance or 0.0)
-    exposure = open_exposure(positions)
-    equity = bal + exposure                                   # total account value
-    max_exp_pct = _frac(c, "max_exposure_pct", 0.50)    # max % deployed across all positions
-    # blank wager -> each trade uses the full max-exposure budget (single-position use)
-    wager_pct = _frac(c, "wager_pct", max_exp_pct)      # per-trade % of equity
-    room = max(0.0, max_exp_pct * equity - exposure)          # new exposure allowed ($)
-    if room <= 0:
+    exposure = open_exposure(positions)                  # $ already out (0 when flat)
+    equity = bal + exposure                              # total account value
+    max_exp_pct = _frac(c, "max_exposure_pct", 0.50)
+    room = max(0.0, max_exp_pct * equity - exposure)     # remaining exposure budget ($)
+    stake = min(room, bal)                               # can't spend more cash than we hold
+    if stake <= 0:
         return {"action": "hold", "rating": rating, "side": side, "ask": ask,
-                "reason": f"exposure cap hit: {max_exp_pct*100:.0f}% of ${equity:.0f} already deployed"}
-    stake = min(wager_pct * equity * conviction, room)
-    if bal > 0:
-        stake = min(stake, bal)                               # can't spend more cash than we have
+                "reason": f"at exposure cap ({max_exp_pct*100:.0f}% of ${equity:.0f})"}
     count = int(math.floor(stake / ask)) if ask > 0 else 0
     if count <= 0:
         return {"action": "hold", "rating": rating, "side": side, "ask": ask,
@@ -109,7 +106,7 @@ def plan_order(rating: str, contract: dict, balance: float | None,
         "price_dollars": round(float(ask), 4), "ticker": contract.get("ticker"),
         "strike": contract.get("strike"), "mins_remaining": contract.get("mins_remaining"),
         "reason": f"{rating} -> buy {count} {side.upper()} @ {ask} "
-                  f"(stake ${stake:.0f} of ${equity:.0f} equity)",
+                  f"(${stake:.0f} = {max_exp_pct*100:.0f}% of ${equity:.0f})",
     }
 
 
