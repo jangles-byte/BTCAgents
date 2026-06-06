@@ -89,6 +89,12 @@ def run_once(dry_run: bool | None = None) -> dict:
         logstore.append_decision({**result, "ticker": contract.get("ticker"),
                                   "strike": contract.get("strike"),
                                   "mins_remaining": contract.get("mins_remaining")})
+        if result.get("placed"):
+            logstore.record_trade({"ticker": result.get("ticker"), "side": result.get("side"),
+                                   "count": result.get("count"), "price": result.get("price_dollars"),
+                                   "order_id": result.get("order_id"),
+                                   "order_status": result.get("order_status"),
+                                   "rating": result.get("rating")})
     except Exception:
         pass
     print(f"[{_now()}] rating={result.get('rating')} action={result.get('action')} "

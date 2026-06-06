@@ -523,15 +523,16 @@ async function pullState(){
 }
 async function pullTrades(){try{const d=await (await fetch('/api/trades')).json();
   const s=d.summary||{};
-  $('thSummary').textContent=s.count?('W'+s.wins+' · L'+s.losses+(s.win_rate!=null?' · '+Math.round(s.win_rate*100)+'%':'')):'—';
-  const rows=(d.settlements||[]).slice().reverse().slice(0,16);
+  $('thSummary').textContent = s.count ? ('W'+s.wins+' · L'+s.losses+(s.win_rate!=null?' · '+Math.round(s.win_rate*100)+'%':'')+(s.bot_count?' · '+s.bot_count+' BOT':'')) : '—';
+  const rows=(d.trades||[]).slice().reverse().slice(0,18);
   $('thBody').innerHTML = rows.length ? rows.map(r=>{
     const col=r.won?'#46c97e':'#ef5350';
+    const bot=r.bot?'<span class="tag" style="color:#e9c46a;border-color:#e9c46a88;margin-left:6px">BOT</span>':'';
     return '<div class="dec"><span class="tag" style="color:'+col+';border-color:'+col+'55">'+(r.won?'WON':'LOST')+'</span>'
-      +'<span class="muted" style="flex:1">'+String(r.ticker||'').replace('KXBTC15M-','')+'</span>'
+      +'<span class="muted" style="flex:1">'+String(r.ticker||'').replace('KXBTC15M-','')+bot+'</span>'
       +'<span class="t" style="color:'+(r.won?'#46c97e':'#7d8896')+'">'+(r.won?('+$'+r.revenue.toFixed(2)):'$0')+'</span>'
       +'<span class="t" style="margin-left:8px">'+tlabel(r.t?Date.parse(r.t)/1000:0)+'</span></div>';
-  }).join('') : '<div class="waiting">No settled trades yet.</div>';
+  }).join('') : '<div class="waiting">No settled trades on the account yet.</div>';
 }catch(e){}}
 async function pullLog(){try{const d=await (await fetch('/api/log')).json();
   const el=$('aiLog');const atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<60;

@@ -49,3 +49,25 @@ def read_status() -> dict:
         return json.loads(_STATUS.read_text())
     except Exception:
         return {"phase": "idle"}
+
+
+# ── trades THIS bot actually placed (so history excludes old account activity) ──
+_TRADES = cfg.PROJECT_ROOT / "btc_kalshi" / "data" / "our_trades.json"
+
+
+def record_trade(rec: dict) -> None:
+    rows = read_trades(2000)
+    rec = dict(rec)
+    rec.setdefault("ts", time.time())
+    rows.append(rec)
+    _TRADES.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _TRADES.with_suffix(".ttmp")
+    tmp.write_text(json.dumps(rows[-2000:], indent=2))
+    tmp.replace(_TRADES)
+
+
+def read_trades(n: int = 200) -> list:
+    try:
+        return json.loads(_TRADES.read_text())[-n:]
+    except Exception:
+        return []

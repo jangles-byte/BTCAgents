@@ -274,30 +274,32 @@ def api_log():
 
 @app.route("/api/trades")
 def api_trades():
-    """Settled trades (results) + recent orders for the trade-history panel."""
-    out = {"settlements": [], "orders": [], "summary": {}}
+    """Real account history from Kalshi (settlements), with the bot's own trades
+    flagged `bot=True` (matched by the tickers BTCAgents recorded placing)."""
+    out = {"trades": [], "summary": {}}
+    our_tickers = set()
     try:
-        setts = kalshi.get_settlements(40)
-        rows, wins = [], 0
-        for s in setts:
+        for t in logstore.read_trades(1000):
+            if t.get("ticker"):
+                our_tickers.add(t["ticker"])
+    except Exception:
+        pass
+    rows, wins = [], 0
+    try:
+        for s in kalshi.get_settlements(60):
             rev = (s.get("revenue") or 0) / 100.0
             won = rev > 0
             wins += 1 if won else 0
             rows.append({"t": s.get("settled_time"), "ticker": s.get("ticker"),
-                         "revenue": round(rev, 2), "won": won})
-        n = len(rows)
-        out["settlements"] = rows
-        out["summary"] = {"count": n, "wins": wins, "losses": n - wins,
-                          "win_rate": round(wins / n, 3) if n else None}
+                         "revenue": round(rev, 2), "won": won,
+                         "bot": s.get("ticker") in our_tickers})
     except Exception as e:
         out["error"] = str(e)
-    try:
-        orders, _ = kalshi.get_orders(15)
-        out["orders"] = [{"t": o.get("created_time"), "ticker": o.get("ticker"),
-                          "action": o.get("action"), "side": o.get("side"),
-                          "status": o.get("status")} for o in orders[:10]]
-    except Exception:
-        pass
+    n = len(rows)
+    out["trades"] = rows
+    out["summary"] = {"count": n, "wins": wins, "losses": n - wins,
+                      "win_rate": round(wins / n, 3) if n else None,
+                      "bot_count": sum(1 for r in rows if r["bot"])}
     return jsonify(out)
 
 
