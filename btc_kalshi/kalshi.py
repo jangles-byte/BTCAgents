@@ -106,6 +106,28 @@ def get_front_market(min_minutes: float = 0.0) -> dict | None:
     }
 
 
+def get_active_quote(ticker: str) -> dict | None:
+    """Quote from the ACTIVE account's own book (demo for account 2) — the book an
+    order is actually sent to and must cross to FILL. Different from get_front_market,
+    which reads PRODUCTION prices for display."""
+    kid, pk, _, _, base, _ = config.get_credentials()
+    if not kid or not pk:
+        return None
+    path = "/trade-api/v2/markets/" + ticker
+    try:
+        r = _session.get(base + "/markets/" + ticker,
+                         headers=_sign(kid, pk, "GET", path), timeout=6)
+        m = r.json().get("market", {}) or {}
+    except Exception:
+        return None
+    yb = _mkt_price(m, "yes_bid_dollars", "yes_bid")
+    ya = _mkt_price(m, "yes_ask_dollars", "yes_ask")
+    return {
+        "yes_ask": ya, "no_ask": (round(1.0 - yb, 4) if yb is not None else None),
+        "yes_bid": yb, "no_bid": (round(1.0 - ya, 4) if ya is not None else None),
+    }
+
+
 def get_balance() -> float | None:
     kid, pk, *_ = config.get_credentials()
     _, _, _, _, base, _ = config.get_credentials()

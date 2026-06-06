@@ -185,6 +185,15 @@ def manage_and_execute(rating: str, contract: dict, dry_run: bool = True) -> dic
     """Position-aware execute. Returns FLAT fields so the log + dashboard show the
     real outcome: side, count, price, and `placed` (did an order actually go)."""
     bal = kalshi.get_balance()
+    # HARD wallet floor: never place a buy when balance is at/below the floor, and
+    # pause buying. Belt-and-suspenders so a single trade can't punch through it.
+    fl = float(cfg.load_config().get("wallet_floor") or 0)
+    if not dry_run and fl > 0 and bal is not None and bal <= fl:
+        cfg.update_config(buying_enabled=False)
+        return {"action": "hold", "rating": normalize_rating(rating), "placed": False,
+                "dry_run": dry_run, "balance_usd": bal, "ticker": contract.get("ticker"),
+                "strike": contract.get("strike"), "mins_remaining": contract.get("mins_remaining"),
+                "reason": f"wallet floor ${fl:.0f} reached (balance ${bal:.0f}) — buying paused"}
     positions = kalshi.get_positions()
     plan = plan_action(rating, contract, bal, positions)
     side, count, price = _order_fields(plan)
@@ -204,20 +213,23 @@ def manage_and_execute(rating: str, contract: dict, dry_run: bool = True) -> dic
     if dry_run or not wants_order:
         return out
 
-    # The cycle took minutes, so the price from cycle-start is stale. Re-fetch the
-    # live ask and place a MARKETABLE limit (cross the spread a touch) so the order
-    # actually FILLS instead of resting unfilled until the contract settles.
+    # Price against the ACTIVE (demo) book we actually send the order to. Production
+    # prices (get_front_market) won't fill the demo book, so a limit priced off them
+    # rests. Cross the demo ask a touch so it FILLS.
     side = op["side"]
-    ask = op["price_dollars"]
-    try:
-        fresh = kalshi.get_front_market(0)
-        if fresh and fresh.get("ticker") == op["ticker"]:
-            a = fresh.get("yes_ask") if side == "yes" else fresh.get("no_ask")
-            if a:
-                ask = float(a)
-    except Exception:
-        pass
-    buf = float(cfg.load_config().get("marketable_buffer") or 0.03)
+    c = cfg.load_config()
+    q = kalshi.get_active_quote(op["ticker"]) or {}
+    demo_ask = q.get("yes_ask") if side == "yes" else q.get("no_ask")
+    ask, src = (demo_ask, "demo-book") if demo_ask is not None else (op["price_dollars"], "planned(prod)")
+    out["book_ask"] = ask
+    out["book_src"] = src
+    # re-check the entry cap on the price we'll actually pay
+    max_entry = _frac(c, "max_entry_price", 0.90)
+    if ask is not None and ask > max_entry:
+        out["action"] = "hold"
+        out["reason"] = f"{side.upper()} {src} ask {ask:.2f} > max entry {max_entry:.2f} — skip"
+        return out
+    buf = float(c.get("marketable_buffer") or 0.02)
     price = min(0.99, round(float(ask) + buf, 2))
     out["price_dollars"] = price
 

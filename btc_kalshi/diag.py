@@ -64,8 +64,14 @@ def main():
     print("  parsed  :", "funding=", cf.get_funding(), " oi=", cf.get_open_interest())
 
     m = contract_context.get_contract()
-    print("\nLIVE FRONT MARKET:")
+    print("\nLIVE FRONT MARKET (PRODUCTION prices — what we display):")
     print(f"  {m}" if m else "  (none / not reachable)")
+    if m:
+        dq = kalshi.get_active_quote(m.get("ticker"))
+        print("ACTIVE-ACCOUNT (DEMO) BOOK for same ticker — what an order must CROSS to fill:")
+        print(f"  {dq}")
+        print("  -> if demo yes_ask/no_ask are None or far from production, a limit priced")
+        print("     off production rests unfilled. The bot now prices off this demo book.")
     print("\n" + "=" * 60)
     print("Read this top to bottom: if FILLS is empty, no order ever executed —")
     print("the bot's orders rested unfilled. ORDERS status tells you why.")

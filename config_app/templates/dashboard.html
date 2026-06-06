@@ -507,10 +507,26 @@ async function pullState(){
     $('funding').className='v '+((fu.funding_rate||0)>=0?'up':'down');
     const oi=s.open_interest||{};$('oi').textContent=oi.open_interest_btc!=null?fmt(oi.open_interest_btc,0):'—';
     const ls=s.long_short||{};$('lsr').textContent=ls.long_short_ratio??'—';
-    // positions
-    const pos=(s.positions||[]).filter(p=>p.position);
-    $('posBody').innerHTML=pos.length?pos.map(p=>{const side=p.position>0?'YES (up)':'NO (down)',cls=p.position>0?'up':'down';
-      return '<div class="kv"><span class="k">'+(p.ticker||'')+'</span><span class="v '+cls+'">'+side+' ×'+Math.abs(p.position)+'</span></div>';}).join(''):'<div class="waiting">No open position.</div>';
+    // current position (rich summary from server, with live unrealized P&L)
+    const P=s.position;
+    if(P){const cls=P.side==='yes'?'up':'down';
+      const u=P.unrealized_usd;
+      const ucls=u==null?'':(u>=0?'up':'down');
+      const usd=v=>v==null?'—':(v<0?'-$'+Math.abs(v).toFixed(2):'$'+v.toFixed(2));
+      const c=v=>v==null?'—':(v*100).toFixed(0)+'¢';
+      $('posBody').innerHTML=
+        '<div class="kv"><span class="k">Direction</span><span class="v '+cls+'">'+P.side_label+' ×'+P.count+'</span></div>'+
+        '<div class="kv"><span class="k">Avg cost</span><span class="v">'+c(P.avg_price)+'</span></div>'+
+        '<div class="kv"><span class="k">Now (sell)</span><span class="v">'+c(P.bid)+'</span></div>'+
+        '<div class="kv"><span class="k">Cost basis</span><span class="v">'+usd(P.exposure_usd)+'</span></div>'+
+        '<div class="kv"><span class="k">Value</span><span class="v">'+usd(P.value_usd)+'</span></div>'+
+        '<div class="kv"><span class="k">Unrealized</span><span class="v '+ucls+'">'+usd(u)+'</span></div>'+
+        '<div class="kv"><span class="k" style="opacity:.6;font-size:11px">'+(P.ticker||'')+'</span></div>';
+    } else {
+      const pos=(s.positions||[]).filter(p=>p.position);
+      $('posBody').innerHTML=pos.length?pos.map(p=>{const side=p.position>0?'UP · YES':'DOWN · NO',cls=p.position>0?'up':'down';
+        return '<div class="kv"><span class="k">'+(p.ticker||'')+'</span><span class="v '+cls+'">'+side+' ×'+Math.abs(p.position)+'</span></div>';}).join(''):'<div class="waiting">Flat — no open position.</div>';
+    }
     // decisions
     const ds=s.decisions||[];$('cyc').textContent=ds.length||'—';
     if(ds.length){const last=ds[ds.length-1];setVerdict(last.rating,last.reason);

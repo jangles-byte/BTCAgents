@@ -68,11 +68,16 @@ def run_once(dry_run: bool | None = None) -> dict:
     logstore.set_status("analyzing", started=started, step="market", ticker=contract.get("ticker"),
                         strike=contract.get("strike"), mins_remaining=contract.get("mins_remaining"))
 
-    fast = str(cfg.load_config().get("fast_mode", "false")).lower() in ("1", "true", "yes")
-    print(f"[{_now()}] deciding on {contract['ticker']} "
+    # decision_mode: "edge" (default — quant fair-value, only bets on real edge),
+    # "fast" (single streaming LLM), or "agents" (the 8-agent committee).
+    mode = str(cfg.load_config().get("decision_mode") or "edge").strip().lower()
+    print(f"[{_now()}] deciding ({mode}) on {contract['ticker']} "
           f"(strike {contract['strike']}, {contract['mins_remaining']:.1f}m left)…")
     logstore.set_status("analyzing", started=started, step="deciding")
-    if fast:
+    if mode == "edge":
+        from . import edge_model
+        decision, _reasoning = edge_model.decide(contract)
+    elif mode == "fast":
         from . import fast_decide
         decision, _reasoning = fast_decide.decide(contract)
     else:
@@ -85,11 +90,13 @@ def run_once(dry_run: bool | None = None) -> dict:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         _, decision = graph.propagate("BTC-USD", today)
 
-    # force-trade (demo testing): if the PM would HOLD, take a directional side from
-    # spot vs strike so every cycle actually places a bet.
+    # force-trade (demo testing only): if the PM would HOLD, take a directional side
+    # from spot vs strike so every cycle places a bet. NEVER force in edge mode —
+    # edge mode's whole point is to HOLD when there is no edge.
     decision_str = str(decision)
     _c = cfg.load_config()
-    if str(_c.get("force_trade", "true")).lower() in ("1", "true", "yes") \
+    if mode != "edge" \
+            and str(_c.get("force_trade", "false")).lower() in ("1", "true", "yes") \
             and execution.normalize_rating(decision_str) == "HOLD":
         # only force when FLAT — if we're holding a position, HOLD means hold it
         side_held, _ = execution.held_position(kalshi.get_positions(), contract.get("ticker"))
@@ -126,8 +133,9 @@ def run_once(dry_run: bool | None = None) -> dict:
         pass
     print(f"[{_now()}] rating={result.get('rating')} action={result.get('action')} "
           f"placed={result.get('placed')} side={result.get('side')} count={result.get('count')} "
-          f"@ {result.get('price_dollars')} status={result.get('order_status')} "
-          f"after={result.get('after_position')} -> {result.get('reason')}"
+          f"@ {result.get('price_dollars')} book={result.get('book_src')}:{result.get('book_ask')} "
+          f"status={result.get('order_status')} after={result.get('after_position')} "
+          f"-> {result.get('reason')}"
           + (f"  ERROR={result.get('error')}" if result.get('error') else ""))
     logstore.set_status("idle", last_done=time.time(), last_rating=result.get("rating"),
                         last_action=result.get("action"))
@@ -135,8 +143,9 @@ def run_once(dry_run: bool | None = None) -> dict:
 
 
 def loop(interval_sec: int = 60) -> None:
-    print(f"[{_now()}] BTCAgents loop started [build: market-only + force_trade + %-exposure]. "
-          f"buying_enabled={_buying_enabled()}. Ctrl-C to stop.\n")
+    _mode = str(cfg.load_config().get("decision_mode") or "edge").strip().lower()
+    print(f"[{_now()}] BTCAgents loop started [build: edge-engine + demo-book pricing + %-exposure] "
+          f"mode={_mode}. buying_enabled={_buying_enabled()}. Ctrl-C to stop.\n")
     while True:
         try:
             run_once()

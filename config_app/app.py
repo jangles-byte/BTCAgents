@@ -65,9 +65,14 @@ SECTIONS = [
          "placeholder": "gpt-5.4-mini"},
         {"key": "max_debate_rounds", "label": "Debate rounds", "type": "number",
          "optional": True, "placeholder": "1"},
-        {"key": "fast_mode", "label": "Fast mode — one quick LLM call (recommended for 15-min)",
-         "type": "text", "optional": True, "placeholder": "true"},
-        {"key": "analysts", "label": "Full-debate analysts (only if fast mode off)", "type": "text",
+        {"key": "decision_mode", "label": "Decision engine", "type": "select",
+         "options": [("edge", "Edge — quant fair-value, only bets on real edge (recommended)"),
+                     ("fast", "Fast — one quick LLM call"),
+                     ("agents", "Agents — full 8-agent committee debate")],
+         "default": "edge"},
+        {"key": "fast_mode", "label": "Fast mode — one quick LLM call (legacy; use Decision engine)",
+         "type": "text", "optional": True, "placeholder": "false"},
+        {"key": "analysts", "label": "Committee analysts (agents mode only)", "type": "text",
          "optional": True, "placeholder": "market  (add fundamentals,news,social to widen)"},
         {"key": "openai_api_key", "label": "OpenAI API key", "type": "password", "secret": True,
          "optional": True},
@@ -106,10 +111,12 @@ SECTIONS = [
          "type": "number", "optional": True, "placeholder": "50"},
         {"key": "max_entry_price", "label": "Max entry price (0–1, skip pricier sides)",
          "type": "number", "optional": True, "placeholder": "0.90"},
+        {"key": "min_ev_edge", "label": "Min edge to trade (edge mode — fair prob must beat the ask by this, e.g. 0.04)",
+         "type": "number", "optional": True, "placeholder": "0.04"},
         {"key": "candle_min_minutes", "label": "Min minutes left to trade a contract",
          "type": "number", "optional": True, "placeholder": "4"},
-        {"key": "force_trade", "label": "Force a directional trade each cycle (demo testing)",
-         "type": "text", "optional": True, "placeholder": "true"},
+        {"key": "force_trade", "label": "Force a directional trade each cycle (demo only; ignored in edge mode)",
+         "type": "text", "optional": True, "placeholder": "false"},
     ]),
 ]
 
@@ -204,6 +211,35 @@ def api_state():
         out["positions"] = kalshi.get_positions()
     except Exception:
         out["positions"] = []
+    # single-position summary (the bot holds at most one market at a time), with
+    # live unrealized P&L valued off the demo book we'd actually sell into.
+    try:
+        held = next((p for p in (out.get("positions") or [])
+                     if int(p.get("position", 0) or 0) != 0), None)
+        if held:
+            n = int(held.get("position", 0) or 0)
+            cnt = abs(n)
+            side = "yes" if n > 0 else "no"
+            exp_usd = float(held.get("market_exposure") or 0) / 100.0   # cost basis $
+            avg = (exp_usd / cnt) if cnt else None
+            q = kalshi.get_active_quote(held.get("ticker")) or {}
+            bid = q.get("yes_bid") if side == "yes" else q.get("no_bid")  # sellable price
+            val = (float(bid) * cnt) if bid is not None else None
+            out["position"] = {
+                "ticker": held.get("ticker"), "side": side,
+                "side_label": "UP · YES" if side == "yes" else "DOWN · NO",
+                "count": cnt,
+                "avg_price": round(avg, 3) if avg is not None else None,
+                "exposure_usd": round(exp_usd, 2),
+                "bid": bid,
+                "value_usd": round(val, 2) if val is not None else None,
+                "unrealized_usd": round(val - exp_usd, 2) if val is not None else None,
+                "realized_usd": round(float(held.get("realized_pnl") or 0) / 100.0, 2),
+            }
+        else:
+            out["position"] = None
+    except Exception:
+        out["position"] = None
     try:
         mm = float(cfg.load_config().get("candle_min_minutes") or 4)
         m = contract_context.get_contract(min_minutes=mm) or contract_context.get_contract()
