@@ -68,7 +68,7 @@ def run_once(dry_run: bool | None = None) -> dict:
     logstore.set_status("analyzing", started=time.time(), ticker=contract.get("ticker"),
                         strike=contract.get("strike"), mins_remaining=contract.get("mins_remaining"))
 
-    graph = TradingAgentsGraph(config=settings.build_ta_config())
+    graph = TradingAgentsGraph(debug=True, config=settings.build_ta_config())
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     print(f"[{_now()}] running agents on {contract['ticker']} "
           f"(strike {contract['strike']}, {contract['mins_remaining']}m left)…")

@@ -39,9 +39,10 @@ def start_runner(interval: int = 60) -> dict:
         return {"ok": True, "running": True, "pid": _read_pid(), "note": "already running"}
     _DATA.mkdir(parents=True, exist_ok=True)
     logf = open(LOG, "a")
+    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
     p = subprocess.Popen(
         [sys.executable, "-m", "btc_kalshi.runner", "--interval", str(interval)],
-        cwd=str(ROOT), stdout=logf, stderr=subprocess.STDOUT, start_new_session=True)
+        cwd=str(ROOT), stdout=logf, stderr=subprocess.STDOUT, start_new_session=True, env=env)
     PIDFILE.write_text(str(p.pid))
     return {"ok": True, "running": True, "pid": p.pid}
 

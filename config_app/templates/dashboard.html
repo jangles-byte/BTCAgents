@@ -200,6 +200,15 @@
       </div>
 
       <div class="card chartcard">
+        <h2><span class="tick"></span>15-Minute Market · zoomed
+          <span class="spacer" style="flex:1"></span>
+          <span class="legend"><span><span class="swatch" style="background:#e9c46a"></span>strike</span>
+          <span>spot <b id="zLast">—</b></span></span>
+        </h2>
+        <div class="pad" style="padding:8px 8px 4px"><canvas id="zoom" height="200"></canvas></div>
+      </div>
+
+      <div class="card chartcard">
         <h2><span class="tick"></span>Contract · Implied P(up) vs Strike
           <span class="spacer" style="flex:1"></span>
           <span class="legend"><span><span class="swatch" style="background:#46c97e"></span>P(up)</span>
@@ -310,8 +319,19 @@ function tween(el,to,d=2,prefix=''){if(to==null||to!==to){el.textContent='—';r
     el.textContent=prefix+v.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
     if(k<1)requestAnimationFrame(step);})(t0);}
 
-/* ---------- live price chart: CANDLES + live spot overlay ---------- */
-let candles=[],liveSpot=null;
+/* ---------- live price chart: CANDLES + line + live spot overlay ---------- */
+let candles=[],liveSpot=null,curStrike=null,spotBuf=[];
+function drawStrike(x,W,H,lo,hi,py){
+  if(curStrike==null)return;
+  if(curStrike>=lo&&curStrike<=hi){const sy=py(curStrike);
+    x.save();x.strokeStyle='rgba(233,196,106,.9)';x.lineWidth=1;x.setLineDash([6,4]);
+    x.beginPath();x.moveTo(0,sy);x.lineTo(W,sy);x.stroke();x.restore();
+    x.fillStyle='rgba(233,196,106,.95)';x.font='9px ui-monospace,monospace';x.fillText('strike '+fmt(curStrike,0),6,sy-3);
+  }else{const above=curStrike>hi;
+    x.fillStyle='rgba(233,196,106,.95)';x.fillRect(0,above?0:H-2,W,2);
+    x.font='9px ui-monospace,monospace';
+    x.fillText((above?'▲ strike '+fmt(curStrike,0)+' above':'▼ strike '+fmt(curStrike,0)+' below'),6,above?12:H-6);}
+}
 function drawPrice(){
   const cv=$('price'),r=cv.getBoundingClientRect(),dpr=devicePixelRatio||1;
   cv.width=r.width*dpr;const H=260;cv.height=H*dpr;const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);
@@ -337,6 +357,7 @@ function drawPrice(){
     x.beginPath();x.moveTo(cxp,py(c.h));x.lineTo(cxp,py(c.l));x.stroke();
     const yo=py(c.o),yc=py(c.c),top=Math.min(yo,yc),hgt=Math.max(1,Math.abs(yc-yo));
     x.fillRect(cxp-bw/2,top,bw,hgt);x.strokeRect(cxp-bw/2,top,bw,hgt);}
+  drawStrike(x,W,H,lo,hi,py);
   if(liveSpot!=null){const ly=py(liveSpot);
     x.strokeStyle='rgba(205,215,227,.6)';x.setLineDash([4,4]);x.beginPath();x.moveTo(0,ly);x.lineTo(W,ly);x.stroke();x.setLineDash([]);
     x.fillStyle='#fff';x.beginPath();x.arc(W-5,ly,2.8,0,7);x.fill();
@@ -346,22 +367,46 @@ function drawPrice(){
     $('lpLast').textContent=t;}
   $('lpRange').textContent=fmt(Math.min(...lows),0)+' – '+fmt(Math.max(...highs),0);
 }
+/* zoomed 15-minute market — live ticks, tight scale, strike pin */
+function drawZoom(){
+  const cv=$('zoom');if(!cv)return;const r=cv.getBoundingClientRect(),dpr=devicePixelRatio||1;
+  cv.width=r.width*dpr;const H=200;cv.height=H*dpr;const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);
+  const W=r.width;x.clearRect(0,0,W,H);
+  if(spotBuf.length<2){x.fillStyle='#4a525c';x.font='11px sans-serif';x.fillText('collecting live ticks…',14,24);return;}
+  const v=spotBuf.map(p=>p.v);let lo=Math.min(...v),hi=Math.max(...v);const sp=(hi-lo)||1;lo-=sp*0.15;hi+=sp*0.15;
+  const py=q=>H-12-((q-lo)/(hi-lo))*(H-24),n=v.length,px=i=>i/(n-1)*(W-8)+4;
+  x.strokeStyle='rgba(255,255,255,.04)';for(let g=0;g<=4;g++){const yy=12+g*(H-24)/4;x.beginPath();x.moveTo(0,yy);x.lineTo(W,yy);x.stroke();}
+  const up=v[n-1]>=v[0],col=up?'70,201,126':'239,83,80';
+  const grad=x.createLinearGradient(0,12,0,H);grad.addColorStop(0,'rgba('+col+',.18)');grad.addColorStop(1,'rgba('+col+',0)');
+  x.beginPath();x.moveTo(px(0),py(v[0]));for(let i=1;i<n;i++)x.lineTo(px(i),py(v[i]));
+  x.lineTo(px(n-1),H);x.lineTo(px(0),H);x.closePath();x.fillStyle=grad;x.fill();
+  x.beginPath();x.moveTo(px(0),py(v[0]));for(let i=1;i<n;i++)x.lineTo(px(i),py(v[i]));
+  x.strokeStyle='rgba('+col+',.95)';x.lineWidth=1.7;x.shadowColor='rgba('+col+',.5)';x.shadowBlur=7;x.stroke();x.shadowBlur=0;
+  drawStrike(x,W,H,lo,hi,py);
+  const ly=py(v[n-1]);x.fillStyle='#fff';x.beginPath();x.arc(W-5,ly,2.8,0,7);x.fill();
+  $('zLast').textContent=fmt(v[n-1],0);
+}
+
 let pupSeries=[];
 function drawContract(){
   const cv=$('contract'),r=cv.getBoundingClientRect(),dpr=devicePixelRatio||1;
   cv.width=r.width*dpr;const H=180;cv.height=H*dpr;const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);
-  const W=r.width;x.clearRect(0,0,W,H);const py=v=>H-14-(v)*(H-26);
-  x.strokeStyle='rgba(255,255,255,.04)';for(let g=0;g<=4;g++){const yy=14+g*(H-26)/4;x.beginPath();x.moveTo(0,yy);x.lineTo(W,yy);x.stroke();}
-  x.strokeStyle='rgba(91,102,117,.7)';x.setLineDash([4,5]);x.beginPath();x.moveTo(0,py(.5));x.lineTo(W,py(.5));x.stroke();x.setLineDash([]);
+  const W=r.width;x.clearRect(0,0,W,H);
   const d=pupSeries;if(d.length<2){x.fillStyle='#4a525c';x.font='11px sans-serif';x.fillText('waiting for contract…',14,24);return;}
-  const px=i=>i/(d.length-1)*(W-8)+4;
-  const grad=x.createLinearGradient(0,14,0,H);grad.addColorStop(0,'rgba(70,201,126,.18)');grad.addColorStop(1,'rgba(70,201,126,0)');
+  let lo=Math.min(...d),hi=Math.max(...d);const sp=(hi-lo)||0.01;lo-=sp*0.25;hi+=sp*0.25;
+  if(lo<0)lo=0;if(hi>1)hi=1;if(hi-lo<0.004){const m=(hi+lo)/2;lo=Math.max(0,m-0.002);hi=Math.min(1,m+0.002);}
+  const py=v=>H-16-((v-lo)/(hi-lo))*(H-28),px=i=>i/(d.length-1)*(W-8)+4;
+  x.strokeStyle='rgba(255,255,255,.04)';for(let g=0;g<=4;g++){const yy=16+g*(H-28)/4;x.beginPath();x.moveTo(0,yy);x.lineTo(W,yy);x.stroke();}
+  if(0.5>=lo&&0.5<=hi){x.strokeStyle='rgba(91,102,117,.7)';x.setLineDash([4,5]);x.beginPath();x.moveTo(0,py(.5));x.lineTo(W,py(.5));x.stroke();x.setLineDash([]);}
+  const grad=x.createLinearGradient(0,16,0,H);grad.addColorStop(0,'rgba(70,201,126,.20)');grad.addColorStop(1,'rgba(70,201,126,0)');
   x.beginPath();x.moveTo(px(0),py(d[0]));for(let i=1;i<d.length;i++)x.lineTo(px(i),py(d[i]));
   x.lineTo(px(d.length-1),H);x.lineTo(px(0),H);x.closePath();x.fillStyle=grad;x.fill();
   x.beginPath();x.moveTo(px(0),py(d[0]));for(let i=1;i<d.length;i++)x.lineTo(px(i),py(d[i]));
   x.strokeStyle='rgba(70,201,126,.95)';x.lineWidth=1.8;x.shadowColor='rgba(70,201,126,.5)';x.shadowBlur=7;x.stroke();x.shadowBlur=0;
+  const dp=hi-lo<0.05?2:1;x.fillStyle='rgba(125,136,150,.9)';x.font='9px ui-monospace,monospace';
+  x.fillText((hi*100).toFixed(dp)+'%',4,12);x.fillText((lo*100).toFixed(dp)+'%',4,H-4);
 }
-addEventListener('resize',()=>{drawPrice();drawContract();});
+addEventListener('resize',()=>{drawPrice();drawZoom();drawContract();});
 
 /* ---------- pipeline: driven by REAL cycle status ---------- */
 let pipeIdx=0,pipeActive=false;
@@ -386,7 +431,9 @@ $('buyBtn').onclick=async()=>{const on=$('buyBtn').dataset.on==='1';
 function tagColor(a){return a==='open'||a==='close_then_open'?'#46c97e':a==='hold_position'?'#cdd7e3':'#7d8896';}
 let lastBal=null,sessStart=null;
 async function pullPrice(){try{const d=await (await fetch('/api/price')).json();
-  if(d.candles&&d.candles.length)candles=d.candles;if(d.spot!=null)liveSpot=d.spot;drawPrice();}catch(e){}}
+  if(d.candles&&d.candles.length)candles=d.candles;
+  if(d.spot!=null){liveSpot=d.spot;spotBuf.push({t:Date.now(),v:d.spot});if(spotBuf.length>900)spotBuf.shift();}
+  drawPrice();drawZoom();}catch(e){}}
 async function pullState(){
   try{const s=await (await fetch('/api/state')).json();
     const demo=s.mode==='DEMO';curMode=s.mode||'';
@@ -413,7 +460,7 @@ async function pullState(){
       ps.className='cstate '+(running?'good':'');}
     // contract
     const c=s.contract;
-    if(c){$('ticker').textContent=c.ticker||'—';tween($('strike'),c.strike,0);
+    if(c){curStrike=c.strike;$('ticker').textContent=c.ticker||'—';tween($('strike'),c.strike,0);
       $('mins').textContent=c.mins_remaining!=null?Math.floor(c.mins_remaining):'—';
       const frac=Math.max(0,Math.min(1,(c.mins_remaining||0)/15));$('ringFg').style.strokeDashoffset=264*(1-frac);
       const pu=c.implied_prob;$('pup').textContent=pu!=null?(pu*100).toFixed(1)+'%':'—';
