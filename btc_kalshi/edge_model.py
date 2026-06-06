@@ -60,10 +60,10 @@ def decide(contract: dict):
     yes_edge = p_up - float(yes_ask)            # value in buying YES (up)
     no_edge = (1.0 - p_up) - float(no_ask)      # value in buying NO (down)
     if yes_edge >= min_edge and yes_edge >= no_edge:
-        print(f" -> BUY  (YES underpriced, edge {yes_edge:+.3f})", flush=True)
-        return "BUY", msg + f" | BUY YES edge {yes_edge:+.3f}"
+        print(f" -> BUY UP (YES underpriced, edge {yes_edge:+.3f})", flush=True)
+        return "BUY", msg + f" | BUY UP (YES) edge {yes_edge:+.3f}"
     if no_edge >= min_edge:
-        print(f" -> SELL (NO underpriced, edge {no_edge:+.3f})", flush=True)
-        return "SELL", msg + f" | SELL NO edge {no_edge:+.3f}"
+        print(f" -> BUY DOWN (NO underpriced, edge {no_edge:+.3f})", flush=True)
+        return "SELL", msg + f" | BUY DOWN (NO) edge {no_edge:+.3f}"
     print(f" -> HOLD (no edge: YES {yes_edge:+.3f}, NO {no_edge:+.3f})", flush=True)
     return "HOLD", msg + f" | HOLD (YES {yes_edge:+.3f}, NO {no_edge:+.3f})"

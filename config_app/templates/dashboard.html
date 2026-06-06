@@ -437,9 +437,23 @@ function setPipe(step){
   nodes.forEach(n=>{const i=STEP_ORDER.indexOf(n.dataset.step);
     n.classList.toggle('on', pipeActive && idx>=0 && i<=idx);});  // lit through the current step
 }
-function setVerdict(rating,reason){const v=$('verdict');v.className='badge';
-  const up=/BUY|OVERWEIGHT/i.test(rating||''),down=/SELL|UNDERWEIGHT/i.test(rating||'');
-  v.classList.add(up?'up':down?'down':'flat');v.textContent=rating||'—';if(reason)$('verdictReason').textContent=reason;}
+/* turn a decision row into a plain directional label using side (yes=up, no=down) */
+function dirLabel(d){const a=(d.action||'').toLowerCase(),r=(d.rating||'').toUpperCase(),s=(d.side||'').toLowerCase();
+  if(a==='hold')return 'HOLD';
+  if(a==='hold_position')return 'HOLD '+(s==='yes'?'UP':s==='no'?'DOWN':'');
+  if(s==='yes')return 'BUY UP';
+  if(s==='no')return 'BUY DOWN';
+  if(/BUY|OVERWEIGHT/.test(r))return 'BUY UP';
+  if(/SELL|UNDERWEIGHT/.test(r))return 'BUY DOWN';
+  return r||a||'—';}
+function dirColor(d){const l=dirLabel(d);
+  if(l.indexOf('BUY UP')===0||l==='HOLD UP')return '#46c97e';
+  if(l.indexOf('BUY DOWN')===0||l==='HOLD DOWN')return '#e0566b';
+  return '#cdd7e3';}
+function setVerdict(d){const v=$('verdict');v.className='badge';const lab=dirLabel(d);
+  const up=lab.indexOf('BUY UP')===0,down=lab.indexOf('BUY DOWN')===0;
+  v.classList.add(up?'up':down?'down':'flat');v.textContent=lab;
+  if(d.reason)$('verdictReason').textContent=d.reason;}
 
 /* ---------- controls ---------- */
 let curMode='';
@@ -529,9 +543,9 @@ async function pullState(){
     }
     // decisions
     const ds=s.decisions||[];$('cyc').textContent=ds.length||'—';
-    if(ds.length){const last=ds[ds.length-1];setVerdict(last.rating,last.reason);
-      $('decBody').innerHTML=ds.slice().reverse().slice(0,8).map(d=>{const t=tlabel(d.ts);
-        return '<div class="dec"><span class="tag" style="color:'+tagColor(d.action)+';border-color:'+tagColor(d.action)+'55">'+(d.rating||d.action||'—')+'</span><span class="muted" style="flex:1">'+(d.reason||'').slice(0,40)+'</span><span class="t">'+t+'</span></div>';}).join('');}
+    if(ds.length){const last=ds[ds.length-1];setVerdict(last);
+      $('decBody').innerHTML=ds.slice().reverse().slice(0,8).map(d=>{const t=tlabel(d.ts);const col=dirColor(d);
+        return '<div class="dec"><span class="tag" style="color:'+col+';border-color:'+col+'55">'+dirLabel(d)+'</span><span class="muted" style="flex:1">'+(d.reason||'').slice(0,40)+'</span><span class="t">'+t+'</span></div>';}).join('');}
     // profit -> swarm + session P&L
     if(s.balance!=null){if(sessStart==null)sessStart=s.balance;
       if(lastBal!=null&&s.balance>lastBal+0.001)clusterSwarm(true);
