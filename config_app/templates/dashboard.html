@@ -12,7 +12,7 @@
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
-  body{background:radial-gradient(1200px 700px at 70% -10%,#0c121b 0%,var(--bg) 60%);
+  body{background:var(--bg);
        color:var(--fg);font:13px/1.5 ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif;overflow-x:hidden}
   #bg{position:fixed;inset:0;z-index:0;display:block}
   .app{position:relative;z-index:1;max-width:1500px;margin:0 auto;padding:14px 18px 60px}
@@ -246,15 +246,11 @@
           <polygon class="spin-r" points="23,40 6,15 40,15" stroke="#384452"/>
         </svg>
         <div class="pipe" id="pipe">
-          <div class="stage"><span class="node" data-s="0"></span><div><div class="nm">Analyst Team</div><div class="sub">market · news · sentiment · funda</div></div></div>
+          <div class="stage"><span class="node" data-step="market"></span><div><div class="nm">Read Market</div><div class="sub">price · indicators · funding</div></div></div>
           <div class="conn"></div>
-          <div class="stage"><span class="node" data-s="1"></span><div><div class="nm">Researchers</div><div class="sub">bull vs bear debate</div></div></div>
+          <div class="stage"><span class="node" data-step="deciding"></span><div><div class="nm">Agents Deciding</div><div class="sub">debate → up / down call</div></div></div>
           <div class="conn"></div>
-          <div class="stage"><span class="node" data-s="2"></span><div><div class="nm">Trader</div><div class="sub">proposes the trade</div></div></div>
-          <div class="conn"></div>
-          <div class="stage"><span class="node" data-s="3"></span><div><div class="nm">Risk Team</div><div class="sub">aggressive · neutral · safe</div></div></div>
-          <div class="conn"></div>
-          <div class="stage"><span class="node" data-s="4"></span><div><div class="nm">Portfolio Manager</div><div class="sub">final rating</div></div></div>
+          <div class="stage"><span class="node" data-step="executing"></span><div><div class="nm">Execute</div><div class="sub">place / manage the order</div></div></div>
         </div>
         <div class="verdict"><span class="muted" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase">Latest</span>
           <span class="badge flat" id="verdict">—</span></div>
@@ -433,12 +429,14 @@ function drawContract(){
 addEventListener('resize',()=>{drawPrice();drawZoom();drawContract();});
 
 /* ---------- pipeline: driven by REAL cycle status ---------- */
-let pipeIdx=0,pipeActive=false;
+let pipeActive=false;
 const nodes=[...document.querySelectorAll('.node')];
-setInterval(()=>{
-  if(pipeActive){nodes.forEach((n,i)=>n.classList.toggle('on',i===pipeIdx));pipeIdx=(pipeIdx+1)%nodes.length;}
-  else nodes.forEach(n=>n.classList.remove('on'));
-},520);
+const STEP_ORDER=["market","deciding","executing"];
+function setPipe(step){
+  const idx=STEP_ORDER.indexOf(step);
+  nodes.forEach(n=>{const i=STEP_ORDER.indexOf(n.dataset.step);
+    n.classList.toggle('on', pipeActive && idx>=0 && i<=idx);});  // lit through the current step
+}
 function setVerdict(rating,reason){const v=$('verdict');v.className='badge';
   const up=/BUY|OVERWEIGHT/i.test(rating||''),down=/SELL|UNDERWEIGHT/i.test(rating||'');
   v.classList.add(up?'up':down?'down':'flat');v.textContent=rating||'—';if(reason)$('verdictReason').textContent=reason;}
@@ -476,10 +474,12 @@ async function pullState(){
     // pipeline status (real)
     const st=s.status||{phase:'idle'};const now=Date.now()/1000;
     pipeActive=running && st.phase==='analyzing';
+    setPipe(st.step);
+    const STEP_LABEL={market:'reading market',deciding:'agents deciding',executing:'executing'};
     const ps=$('pipeStatus');
     if(!running){ps.textContent='stopped — press Run System';ps.className='cstate';}
     else if(st.phase==='analyzing'){const el=Math.max(0,Math.floor(now-(st.started||st.ts||now)));
-      ps.textContent='● analyzing — '+Math.floor(el/60)+':'+String(el%60).padStart(2,'0')+(el>240?'  (stalled? check log)':'');
+      ps.textContent='● '+(STEP_LABEL[st.step]||'analyzing')+' — '+Math.floor(el/60)+':'+String(el%60).padStart(2,'0')+(el>240?'  (stalled? check log)':'');
       ps.className='cstate '+(el>240?'bad':'warn');}
     else if(st.phase==='error'){ps.textContent='⚠ error — '+(st.error||'').slice(0,54);ps.className='cstate bad';}
     else{const ago=st.last_done?Math.floor(now-st.last_done):null;

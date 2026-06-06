@@ -54,10 +54,8 @@ def smoke() -> None:
 
 
 def run_once(dry_run: bool | None = None) -> dict:
-    """One full cycle: contract -> agent debate -> rating -> order."""
+    """One cycle: pick the live contract -> decide up/down -> place the order."""
     settings.apply_env()
-    ta_crypto_vendor.register_crypto_vendor()
-    from tradingagents.graph.trading_graph import TradingAgentsGraph  # lazy: needs TA deps
 
     min_mins = float(cfg.load_config().get("candle_min_minutes") or 4)
     contract = contract_context.get_contract(min_minutes=min_mins)
@@ -66,18 +64,26 @@ def run_once(dry_run: bool | None = None) -> dict:
         logstore.set_status("idle", note=f"waiting for a market with >= {min_mins:g}m left")
         return {"action": "skip", "reason": "no fresh contract"}
     ta_crypto_vendor.set_active_contract(contract)
-    logstore.set_status("analyzing", started=time.time(), ticker=contract.get("ticker"),
+    started = time.time()
+    logstore.set_status("analyzing", started=started, step="market", ticker=contract.get("ticker"),
                         strike=contract.get("strike"), mins_remaining=contract.get("mins_remaining"))
 
-    analysts = [a.strip() for a in
-                str(cfg.load_config().get("analysts") or "market").split(",")
-                if a.strip()]
-    graph = TradingAgentsGraph(debug=True, selected_analysts=analysts,
-                               config=settings.build_ta_config())
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    print(f"[{_now()}] running agents on {contract['ticker']} "
-          f"(strike {contract['strike']}, {contract['mins_remaining']}m left)…")
-    _, decision = graph.propagate("BTC-USD", today)
+    fast = str(cfg.load_config().get("fast_mode", "false")).lower() in ("1", "true", "yes")
+    print(f"[{_now()}] deciding on {contract['ticker']} "
+          f"(strike {contract['strike']}, {contract['mins_remaining']:.1f}m left)…")
+    logstore.set_status("analyzing", started=started, step="deciding")
+    if fast:
+        from . import fast_decide
+        decision, _reasoning = fast_decide.decide(contract)
+    else:
+        ta_crypto_vendor.register_crypto_vendor()
+        from tradingagents.graph.trading_graph import TradingAgentsGraph  # lazy: heavy deps
+        analysts = [a.strip() for a in
+                    str(cfg.load_config().get("analysts") or "market").split(",") if a.strip()]
+        graph = TradingAgentsGraph(debug=True, selected_analysts=analysts,
+                                   config=settings.build_ta_config())
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        _, decision = graph.propagate("BTC-USD", today)
 
     # force-trade (demo testing): if the PM would HOLD, take a directional side from
     # spot vs strike so every cycle actually places a bet.
@@ -104,6 +110,7 @@ def run_once(dry_run: bool | None = None) -> dict:
 
     if dry_run is None:
         dry_run = not _buying_enabled()
+    logstore.set_status("analyzing", started=started, step="executing")
     result = execution.manage_and_execute(decision_str, contract, dry_run=dry_run)
     try:
         logstore.append_decision({**result, "ticker": contract.get("ticker"),

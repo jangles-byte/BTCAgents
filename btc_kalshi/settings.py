@@ -69,4 +69,6 @@ def build_ta_config() -> dict:
     ta["data_vendors"]["fundamental_data"] = "crypto"
     # news_data stays on yfinance (keeps the news + sentiment agents working for BTC)
     ta["asset_class"] = "crypto"
+    # per-LLM-call timeout so a hung agent can't outlive the 15-min contract
+    ta["request_timeout"] = float(c.get("request_timeout") or 90)
     return ta

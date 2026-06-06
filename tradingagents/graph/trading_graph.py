@@ -162,6 +162,13 @@ class TradingAgentsGraph:
         if temperature is not None and temperature != "":
             kwargs["temperature"] = float(temperature)
 
+        # Request timeout: kills a genuinely HUNG call (no truncation of content) so
+        # a stuck cycle can't outlive the 15-min contract. Brevity is handled by the
+        # agent instructions, not a token cap.
+        timeout = self.config.get("request_timeout") or self.config.get("timeout")
+        if timeout not in (None, ""):
+            kwargs["timeout"] = float(timeout)
+
         return kwargs
 
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:

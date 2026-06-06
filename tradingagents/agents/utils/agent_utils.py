@@ -141,6 +141,12 @@ def build_instrument_context(
         context += (
             " Treat it as a crypto asset rather than a company, and do not "
             "assume company fundamentals are available."
+            " IMPORTANT — THIS IS A 15-MINUTE UP/DOWN BINARY BET (Kalshi). Be BRIEF and"
+            " DECISIVE: at most ~120 words, no essays, no multi-section reports, no big tables."
+            " Judge ONLY whether price will close ABOVE or BELOW the strike in the minutes"
+            " remaining, using short-term price action; ignore long-term, macro and multi-week"
+            " views. Commit to a direction — BUY (up) or SELL (down); use HOLD only for a true"
+            " coin-flip."
         )
     return context
 
